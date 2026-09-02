@@ -1,0 +1,20 @@
+---
+title: {{ title | yaml }}
+source: {{ url }}
+author: {{ author | yaml }}
+published: {{ published }}
+clipped: {{ datetime }}
+tags: [{{ tags | yaml_list }}]
+category: {{ category | yaml }}
+subcategory: {{ subcategory | yaml }}
+---
+
+> [!info] {{ author or "Medium" }}{% if published %} · {{ published[:10] }}{% endif %}
+> {{ description }}
+
+# {{ title }}
+
+{{ content }}
+
+---
+[Original]({{ url }})

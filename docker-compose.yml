@@ -1,0 +1,23 @@
+services:
+  clip-server:
+    build: ./server
+    container_name: clip-server
+    restart: unless-stopped
+
+    # 127.0.0.1 on purpose. This endpoint writes files to your disk; it has no
+    # business being reachable from the rest of your network.
+    ports:
+      - "127.0.0.1:${CLIP_PORT:-8765}:8765"
+
+    environment:
+      CLIP_TOKEN: "${CLIP_TOKEN:-}"
+      CLIP_LOG_LEVEL: "${CLIP_LOG_LEVEL:-INFO}"
+      PUID: "${PUID:-1000}"
+      PGID: "${PGID:-1000}"
+      TZ: "${TZ:-UTC}"
+
+    volumes:
+      # Your notes folder. Everything the server writes lands under here.
+      - ${VAULT_PATH:?set VAULT_PATH in .env}:/vault
+      # Rules and custom templates. Read-only: the server never edits them.
+      - ./server/config:/config:ro

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header class="bar">
+    <h1 class="bar__title">Clip to Vault</h1>
+    <div class="bar__right">
+      <span id="serverDot" class="dot" title="Clip server status"></span>
+      <button id="openOptions" class="bar__link" type="button">Settings</button>
+    </div>
+  </header>
+
+  <div class="modes" role="group" aria-label="What to clip">
+    <button class="modes__btn" data-mode="article" type="button">Article</button>
+    <button class="modes__btn" data-mode="page" type="button">Whole page</button>
+  </div>
+
+  <main class="body">
+    <div id="loading" class="note note--busy">Reading the page…</div>
+    <div id="error" class="note note--error" hidden></div>
+
+    <form id="form" class="form" hidden>
+      <label class="field">
+        <span class="field__label">Title</span>
+        <input id="title" class="field__input" type="text" autocomplete="off" />
+      </label>
+
+      <label class="field">
+        <span class="field__label">Tags <span class="field__hint">comma separated</span></span>
+        <input id="tags" class="field__input" type="text" autocomplete="off" />
+      </label>
+
+      <!-- Read-only: the server works this out from what the page declares
+           about itself, so there is nothing to pick. -->
+      <div class="filed">
+        <span class="filed__label">Filed as</span>
+        <span id="filedAs" class="filed__value"></span>
+        <span id="filedWhy" class="filed__why"></span>
+      </div>
+
+      <details class="advanced">
+        <summary class="advanced__summary">Override this clip</summary>
+        <div class="advanced__body">
+          <label class="field">
+            <span class="field__label">File name</span>
+            <input id="filename" class="field__input field__input--mono" type="text" placeholder="leave blank to use server rules" spellcheck="false" />
+          </label>
+        </div>
+      </details>
+
+      <details class="preview">
+        <summary class="preview__summary">
+          Preview <span id="stats" class="preview__stats"></span>
+        </summary>
+        <pre id="previewText" class="preview__text"></pre>
+      </details>
+    </form>
+  </main>
+
+  <footer class="foot">
+    <div id="dest" class="dest"></div>
+    <div class="foot__actions">
+      <div id="status" class="status" aria-live="polite"></div>
+      <button id="save" class="save" type="button" disabled>Send to vault</button>
+    </div>
+  </footer>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

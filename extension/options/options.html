@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Clip to Vault — Settings</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+<div class="page">
+
+  <header class="head">
+    <h1 class="head__title">Clip to Vault</h1>
+    <p class="head__sub">This extension reads the page. Your Python container does everything else.</p>
+  </header>
+
+  <section class="card">
+    <h2 class="card__title">Clip server</h2>
+
+    <label class="field">
+      <span class="field__label">Address</span>
+      <input id="serverUrl" class="input input--mono" type="text" placeholder="http://127.0.0.1:8765" />
+      <span class="hint">Must match <code>CLIP_PORT</code> in your <code>.env</code>. Keep it on 127.0.0.1.</span>
+    </label>
+
+    <label class="field">
+      <span class="field__label">Token</span>
+      <input id="token" class="input input--mono" type="password" placeholder="leave blank if CLIP_TOKEN is unset" />
+      <span class="hint">Same value as <code>CLIP_TOKEN</code>. <button id="toggleToken" class="linkbtn" type="button">Show</button></span>
+    </label>
+
+    <div class="test">
+      <button id="testConn" class="btn" type="button">Test connection</button>
+      <span id="testResult" class="test__result"></span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2 class="card__title">If the server is down</h2>
+
+    <label class="toggle">
+      <input id="fallbackToDownloads" type="checkbox" />
+      <span class="toggle__body">
+        <span class="toggle__name">Save to Downloads instead</span>
+        <span class="toggle__desc">A clip is never lost because the container was stopped. Extraction happens in the container, so this saves the raw <code>.html</code> — feed it back through the server later to get a note.</span>
+      </span>
+    </label>
+
+    <label class="field">
+      <span class="field__label">Fallback subfolder</span>
+      <input id="downloadsSubfolder" class="input input--mono" type="text" placeholder="Clips" />
+    </label>
+  </section>
+
+  <section class="card">
+    <h2 class="card__title">Defaults</h2>
+
+    <label class="field">
+      <span class="field__label">Clip mode when the popup opens</span>
+      <select id="defaultMode" class="input">
+        <option value="article">Article — just the readable content</option>
+        <option value="page">Whole page — keep everything</option>
+      </select>
+    </label>
+
+    <label class="field">
+      <span class="field__label">Starting tags</span>
+      <input id="defaultTags" class="input" type="text" placeholder="inbox" />
+      <span class="hint">These are merged with whatever tags the matching server rule adds.</span>
+    </label>
+  </section>
+
+  <section class="card">
+    <h2 class="card__title">Categories</h2>
+    <p class="card__lede">
+      Nothing to set here. Every note is filed automatically: the
+      <strong>category</strong> comes from the rule matching the site you clipped,
+      and the <strong>subcategory</strong> from the category the page publishes
+      about itself — the one the author filed it under. A site that declares
+      nothing leaves the field blank rather than guessing.
+    </p>
+    <p class="hint">
+      Change how a site is filed in <code>server/config/config.yaml</code>, next
+      to its other rules.
+    </p>
+  </section>
+
+  <section class="card">
+    <h2 class="card__title">Where the rest lives</h2>
+    <p class="card__lede">Templates, file names, categories and per-site routing are not configured here — they're in the container, so you can edit them without reloading the extension.</p>
+    <div class="vars">
+      <div>server/config/config.yaml</div>
+      <div>The template, tags and category each domain gets</div>
+      <div>server/config/templates/</div>
+      <div>Drop a .md.j2 file here to override a built-in template</div>
+      <div>.env</div>
+      <div>Vault path, port, token, UID/GID</div>
+    </div>
+    <p class="hint">Config changes take effect on the next clip. No restart.</p>
+  </section>
+
+  <div class="save-bar">
+    <span id="saveStatus" class="save-bar__status" aria-live="polite"></span>
+    <button id="save" class="btn btn--primary" type="button">Save settings</button>
+  </div>
+
+</div>
+<script src="options.js" type="module"></script>
+</body>
+</html>

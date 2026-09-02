@@ -1,0 +1,65 @@
+# How clips are named, templated, tagged and filed.
+#
+# Everything lands in one folder — `defaults.subfolder` — and what a clip is
+# *about* is recorded as `category` / `subcategory` in the note's frontmatter
+# rather than by where the file sits.
+#
+# Nobody is asked for either at clip time. `category` describes the source, so
+# you set it per-site below. `subcategory` defaults to `{{ site_category }}`:
+# the category the page publishes for itself, which on a WordPress site is the
+# author's own filing, read from `article:section` or JSON-LD `articleSection`.
+# A site that declares nothing leaves the field blank rather than guessing.
+#
+# `defaults` applies to everything. `sites` overrides it per domain — the first
+# matching entry wins. Edit this file and the server picks it up on the next
+# clip; no restart needed.
+#
+# subfolder, filename, category and subcategory are all Jinja templates, so
+# {{ date }}, {{ domain }}, {{ site_category }}, {{ title | slug }} and friends
+# work in any of them.
+
+defaults:
+  subfolder: "inbox"
+  filename: "{{ title }}"
+  template: "default.md.j2"
+  on_conflict: "uniquify"      # uniquify | overwrite | skip
+  download_assets: false
+  tags: ["clipped"]
+  category: ""                 # set per-site — a site is one kind of thing
+  subcategory: "{{ site_category }}"
+
+sites:
+  # Publishes its category in the head on every post, and the values are its own
+  # sidebar taxonomy — Behavioral Finance, Personal Finance, Nano Learning and
+  # the rest. So subcategory needs no rule here: the inherited default reads it.
+  - match: ["happyrichinvestor.com", "*.happyrichinvestor.com"]
+    category: "Investor Finance"
+    download_assets: true
+    tags: ["article"]
+
+  - match: ["medium.com", "*.medium.com", "towardsdatascience.com"]
+    template: "medium.md.j2"
+    download_assets: true
+    tags: ["article", "medium"]
+
+  - match: ["*.youtube.com", "youtu.be"]
+    filename: "{{ date }} {{ title | slug }}"
+    tags: ["video", "transcript"]
+
+  - match: ["github.com", "*.github.io"]
+    tags: ["code"]
+
+  - match: ["news.ycombinator.com", "*.reddit.com"]
+    filename: "{{ date }} {{ title | slug }}"
+    tags: ["discussion"]
+
+  - match: ["arxiv.org", "*.arxiv.org"]
+    download_assets: true
+    tags: ["paper"]
+
+  # A rule may still set `subfolder` if you ever want one site kept apart, and
+  # may pin `subcategory` to a literal for a site that publishes nothing:
+  # - match: "docs.python.org"
+  #   subfolder: "reference/python"
+  #   subcategory: "Python"
+  #   on_conflict: "overwrite"

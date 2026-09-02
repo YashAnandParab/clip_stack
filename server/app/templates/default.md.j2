@@ -1,0 +1,16 @@
+---
+title: {{ title | yaml }}
+source: {{ url }}
+author: {{ author | yaml }}
+published: {{ published }}
+clipped: {{ datetime }}
+site: {{ site | yaml }}
+words: {{ word_count }}
+tags: [{{ tags | yaml_list }}]
+category: {{ category | yaml }}
+subcategory: {{ subcategory | yaml }}
+---
+
+# {{ title }}
+
+{{ content }}

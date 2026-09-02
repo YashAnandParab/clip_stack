@@ -1,0 +1,81 @@
+# ---------------------------------------------------------------------------
+# Secrets and local configuration
+# ---------------------------------------------------------------------------
+# .env holds CLIP_TOKEN and the absolute path to your notes folder. Neither
+# belongs in a repo. .env.example carries the same keys with no values, so a
+# fresh clone still knows what to fill in.
+.env
+.env.*
+!.env.example
+
+# ---------------------------------------------------------------------------
+# Your notes
+# ---------------------------------------------------------------------------
+# The vault is data, not source: your own writing plus the full text of other
+# people's articles. docker-compose reads its real location from VAULT_PATH, so
+# this only matters when you point that at the folder in the repo.
+vault/
+
+# Obsidian's per-vault state — workspace layout, plugins, trash. Listed
+# separately in case you ever open the repo root as a vault.
+.obsidian/
+.trash/
+
+# Chunked article text, derived from the vault. Same reasoning: regenerable
+# output containing third-party content. Delete this line if you'd rather
+# version it.
+chunk.json
+
+# ---------------------------------------------------------------------------
+# Python — the clip server
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---------------------------------------------------------------------------
+# The extension
+# ---------------------------------------------------------------------------
+# No build step today, but this is where one would land.
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Packaging output. The .pem is the signing key that owns the extension's ID —
+# leaking it lets someone else publish as you.
+*.zip
+*.crx
+*.pem
+
+# ---------------------------------------------------------------------------
+# Editors and OS
+# ---------------------------------------------------------------------------
+.idea/
+*.swp
+*~
+
+# Keep the shareable half of the VS Code folder, drop the personal half.
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Claude Code's per-machine permission overrides.
+.claude/settings.local.json
+
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------------------------------------------------------------------------
+# Deliberately tracked
+# ---------------------------------------------------------------------------
+# server/config/config.yaml is not ignored. It holds no secrets — just which
+# template, tags and category each site gets — and it is the part of this
+# project most worth having a history of. Add it here if you ever put something
+# private in it.

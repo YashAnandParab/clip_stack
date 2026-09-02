@@ -1,0 +1,14 @@
+---
+title: {{ title | yaml }}
+source: {{ url }}
+clipped: {{ datetime }}
+tags: [{{ tags | yaml_list }}]
+category: {{ category | yaml }}
+subcategory: {{ subcategory | yaml }}
+---
+
+# {{ title }}
+
+{{ description }}
+
+[Open]({{ url }})

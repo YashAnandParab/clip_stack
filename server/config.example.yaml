@@ -1,0 +1,65 @@
+# Where clips go, and what they are filed as.
+#
+# `defaults` applies to everything. `sites` overrides it per domain — the first
+# matching entry wins. Edit this file and the server picks it up on the next
+# clip; no restart needed.
+#
+# subfolder, filename, category and subcategory are all Jinja templates, so
+# {{ date }}, {{ domain }}, {{ site_category }}, {{ title | slug }} and friends
+# work in any of them.
+#
+# Nobody is asked for a category at clip time. `category` describes the source,
+# so set it per-site. `subcategory` defaults to `{{ site_category }}` — the
+# category the page publishes for itself via `article:section` or JSON-LD
+# `articleSection`, which most CMSs emit. Sites that declare nothing leave the
+# field blank rather than guessing at it.
+
+defaults:
+  subfolder: "inbox"
+  filename: "{{ title }}"
+  template: "default.md.j2"
+  on_conflict: "uniquify"      # uniquify | overwrite | skip
+  download_assets: false
+  tags: ["clipped"]
+  category: ""
+  subcategory: "{{ site_category }}"
+
+sites:
+  # A site whose own categories are the subcategories you want: set the category
+  # and let the inherited default read the rest off each post.
+  - match: ["example-blog.com", "*.example-blog.com"]
+    category: "Investor Finance"
+    download_assets: true
+    tags: ["article"]
+
+  - match: ["medium.com", "*.medium.com", "towardsdatascience.com"]
+    subfolder: "raw/articles/{{ year }}"
+    template: "medium.md.j2"
+    download_assets: true
+    tags: ["article", "medium"]
+
+  - match: ["*.youtube.com", "youtu.be"]
+    subfolder: "raw/talks"
+    filename: "{{ date }} {{ title | slug }}"
+    tags: ["video", "transcript"]
+
+  - match: ["github.com", "*.github.io"]
+    subfolder: "raw/code"
+    tags: ["code"]
+
+  - match: ["news.ycombinator.com", "*.reddit.com"]
+    subfolder: "raw/threads"
+    filename: "{{ date }} {{ title | slug }}"
+    tags: ["discussion"]
+
+  - match: ["arxiv.org", "*.arxiv.org"]
+    subfolder: "raw/papers"
+    download_assets: true
+    tags: ["paper"]
+
+  # A site that publishes no category of its own can pin one:
+  # - match: "docs.python.org"
+  #   subfolder: "reference/python"
+  #   category: "Reference"
+  #   subcategory: "Python"
+  #   on_conflict: "overwrite"

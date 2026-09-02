@@ -1,0 +1,375 @@
+/* ---------------------------------------------------------------------------
+   Tokens
+   Personality comes from the monospace: this is a tool about filenames and
+   folders, so paths are typeset like paths. Everything else stays quiet.
+--------------------------------------------------------------------------- */
+
+:root {
+  --ink: #17181d;
+  --ink-2: #5b6070;
+  --ink-3: #878c9c;
+  --paper: #fcfcfd;
+  --panel: #f1f2f6;
+  --panel-2: #e9ebf1;
+  --line: #dfe1e9;
+  --accent: #4b36cf;
+  --accent-soft: #ece9fb;
+  --on-accent: #ffffff;
+  --ok: #10704f;
+  --err: #b3261e;
+  --err-soft: #fdeceb;
+
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+
+  --r: 7px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #eef0f5;
+    --ink-2: #a4aab9;
+    --ink-3: #7b8191;
+    --paper: #16171c;
+    --panel: #1f2128;
+    --panel-2: #282b34;
+    --line: #31343e;
+    --accent: #9b8bff;
+    --accent-soft: #262341;
+    --on-accent: #16171c;
+    --ok: #4ecf9f;
+    --err: #ff8b82;
+    --err-soft: #3a1f1d;
+  }
+}
+
+* { box-sizing: border-box; }
+
+/* Any author `display` beats the browser's own [hidden] rule, so .form would
+   stay on screen with the attribute set. Restore it once here rather than
+   remembering a [hidden] variant for every component. */
+[hidden] { display: none !important; }
+
+body {
+  width: 392px;
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--paper);
+}
+
+/* --- header ------------------------------------------------------------- */
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 11px 14px 11px 12px;
+  border-bottom: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+}
+
+.bar__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.bar__link {
+  border: 0;
+  padding: 2px 4px;
+  background: none;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.bar__link:hover { color: var(--accent); }
+
+/* --- mode switch -------------------------------------------------------- */
+
+.modes {
+  display: flex;
+  gap: 2px;
+  padding: 10px 14px 0;
+}
+
+.modes__btn {
+  flex: 1;
+  padding: 6px 4px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.modes__btn:first-child { border-radius: var(--r) 0 0 var(--r); }
+.modes__btn:last-child { border-radius: 0 var(--r) var(--r) 0; }
+.modes__btn + .modes__btn { margin-left: -1px; }
+.modes__btn:hover { background: var(--panel); }
+.modes__btn[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  position: relative;
+  z-index: 1;
+}
+
+/* --- body --------------------------------------------------------------- */
+
+.body { padding: 12px 14px 4px; }
+
+.note {
+  padding: 10px 12px;
+  border-radius: var(--r);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.note--busy { background: var(--panel); color: var(--ink-2); }
+.note--error { background: var(--err-soft); color: var(--err); }
+
+.form { display: flex; flex-direction: column; gap: 10px; }
+
+.field { display: flex; flex-direction: column; gap: 4px; }
+
+.field__label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.field__hint {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-3);
+  opacity: 0.75;
+}
+
+.field__input {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 13px;
+}
+.field__input--mono { font-family: var(--mono); font-size: 12px; }
+
+.field__input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* --- filed as ------------------------------------------------------------ */
+/* Reported, not asked. Reads as a statement of what happened, so it is styled
+   flat rather than as a control you could mistake for an input. */
+
+.filed {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 3px 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r);
+  background: var(--panel);
+}
+
+.filed__label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.filed__value {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
+}
+.filed__value[data-tone="empty"] { color: var(--ink-3); font-style: italic; }
+
+/* Why it landed there — the quiet half, so the filing itself reads first. */
+.filed__why {
+  flex: 1 1 100%;
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--ink-3);
+}
+
+/* --- preview ------------------------------------------------------------ */
+
+.preview {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+}
+
+.preview__summary {
+  padding: 7px 10px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.preview__summary::-webkit-details-marker { display: none; }
+.preview__summary::before {
+  content: "▸";
+  margin-right: 6px;
+  color: var(--ink-3);
+}
+.preview[open] .preview__summary::before { content: "▾"; }
+
+.preview__stats {
+  font-family: var(--mono);
+  font-weight: 400;
+  font-size: 10.5px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-3);
+}
+
+.preview__text {
+  margin: 0;
+  padding: 0 10px 10px;
+  max-height: 190px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink-2);
+}
+
+/* --- footer ------------------------------------------------------------- */
+/* The path strip is the one thing worth remembering here: it answers the only
+   question a clipper ever really has, which is "where did that go". */
+
+.foot {
+  border-top: 1px solid var(--line);
+  padding: 10px 14px 12px;
+  margin-top: 10px;
+}
+
+.dest {
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-3);
+  background: var(--panel);
+  border-radius: var(--r);
+  padding: 7px 9px;
+  word-break: break-all;
+  min-height: 30px;
+}
+.dest b { color: var(--accent); font-weight: 600; }
+/* The frontmatter the note will carry, under the path it will take. */
+.dest__meta { color: var(--ink-2); }
+
+.foot__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 9px;
+}
+
+.status {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--ink-3);
+}
+.status[data-tone="ok"] { color: var(--ok); }
+.status[data-tone="err"] { color: var(--err); }
+
+.save {
+  flex: 0 0 auto;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: var(--r);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.save:hover:not(:disabled) { filter: brightness(1.08); }
+.save:disabled { opacity: 0.45; cursor: default; }
+.save:focus-visible,
+.modes__btn:focus-visible,
+.bar__link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+/* --- server status dot --------------------------------------------------- */
+/* Answers "is the container up" before you bother clipping anything. */
+
+.bar__right { display: flex; align-items: center; gap: 9px; }
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-3);
+  flex: 0 0 auto;
+}
+.dot[data-state="up"] { background: var(--ok); }
+.dot[data-state="down"] { background: var(--err); }
+.dot[data-state="checking"] { background: var(--ink-3); opacity: 0.5; }
+
+/* --- per-clip overrides -------------------------------------------------- */
+
+.advanced {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+
+.advanced__summary {
+  padding: 7px 10px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  list-style: none;
+}
+.advanced__summary::-webkit-details-marker { display: none; }
+.advanced__summary::before { content: "▸"; margin-right: 6px; color: var(--ink-3); }
+.advanced[open] .advanced__summary::before { content: "▾"; }
+
+.advanced__body {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 2px 10px 10px;
+}
