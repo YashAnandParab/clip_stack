@@ -15,8 +15,8 @@ const els = {
   form: $('form'),
   title: $('title'),
   tags: $('tags'),
-  filedAs: $('filedAs'),
-  filedWhy: $('filedWhy'),
+  category: $('category'),
+  subcategory: $('subcategory'),
   filename: $('filename'),
   preview: $('previewText'),
   stats: $('stats'),
@@ -36,6 +36,32 @@ const state = {
   health: null,
   busy: false
 };
+
+const TAXONOMY = {
+  'Investor Finance': ['Behavioral Finance', 'Personal Finance', 'Nano Learning', 'Investing', 'Markets', 'Money'],
+  Work: ['AI', 'Database'],
+  News: ['Political', 'Sports'],
+  Entertainment: ['Movies', 'Songs']
+};
+
+function options(select, values, placeholder) {
+  select.replaceChildren(new Option(placeholder, ''), ...values.map((value) => new Option(value, value)));
+}
+
+function fillSubcategories(value = '') {
+  const values = [...(TAXONOMY[els.category.value] || [])];
+  if (value && !values.includes(value)) values.unshift(value);
+  options(els.subcategory, values, 'Select a subcategory');
+  els.subcategory.value = value;
+}
+
+function fillCategories(value = '') {
+  const values = Object.keys(TAXONOMY);
+  if (value && !values.includes(value)) values.unshift(value);
+  options(els.category, values, 'Select a category');
+  els.category.value = value;
+  fillSubcategories();
+}
 
 // ---------------------------------------------------------------------------
 
@@ -175,7 +201,7 @@ async function extract(mode) {
       els.form.hidden = false;
       els.title.value = '';
       els.preview.textContent = '';
-      refreshFiledAs();
+      fillCategories();
       updateSaveState();
       els.stats.textContent = `${Math.round(data.html.length / 1024)} KB of HTML captured`;
       setStatus('Clip server is down — no preview. Saving will keep the raw HTML.');
@@ -189,6 +215,8 @@ async function extract(mode) {
   els.loading.hidden = true;
   els.form.hidden = false;
   els.title.value = state.preview.title || '';
+  fillCategories(state.preview.category || '');
+  fillSubcategories(state.preview.subcategory || '');
   updateSaveState();
 
   // Surface anything other than the normal path — a whole-page extraction is
@@ -202,7 +230,6 @@ async function extract(mode) {
 function refreshPreview() {
   const p = state.preview;
   if (!p) return;
-  refreshFiledAs();
   els.preview.textContent = p.markdown;
   els.stats.textContent = `${p.word_count.toLocaleString()} words · ${Math.round(
     p.markdown.length / 1024
@@ -214,52 +241,23 @@ function refreshPreview() {
 // Sending
 // ---------------------------------------------------------------------------
 
-// --- category / subcategory -------------------------------------------------
-// Nothing is picked here. The server derives both from the category the page
-// publishes for itself plus the matching rule in config.yaml, so the popup only
-// reports what it decided — and never blocks Save on it.
-
-/** Show the filing the server worked out, and where it came from. */
-function refreshFiledAs() {
-  const p = state.preview;
-
-  if (!p) {
-    els.filedAs.textContent = '—';
-    els.filedWhy.textContent = '';
-    delete els.filedAs.dataset.tone;
-    return;
-  }
-
-  const parts = [p.category, p.subcategory].filter(Boolean);
-  els.filedAs.textContent = parts.length ? parts.join(' › ') : 'nothing';
-  els.filedAs.dataset.tone = parts.length ? 'set' : 'empty';
-
-  if (p.site_category) {
-    els.filedWhy.textContent = `the page says "${p.site_category}"`;
-  } else if (parts.length) {
-    els.filedWhy.textContent = 'from your site rule';
-  } else {
-    els.filedWhy.textContent = 'this site declares no category';
-  }
-}
-
 /** Save waits only on having something to send. */
 function updateSaveState() {
-  els.save.disabled = !state.extracted || state.busy;
+  els.save.disabled = !state.extracted || state.busy || !els.category.value || !els.subcategory.value;
 }
 
 function buildPayload() {
   const d = state.extracted;
 
   // title goes out empty unless the user edited it, so the server's extracted
-  // title wins by default. category/subcategory are not sent at all — they are
-  // the server's to decide.
   const payload = {
     html: d.html,
     url: d.url,
     mode: d.mode,
     title: els.title.value || '',
-    tags: els.tags.value.split(',').map((t) => t.trim()).filter(Boolean)
+    tags: els.tags.value.split(',').map((t) => t.trim()).filter(Boolean),
+    category: els.category.value,
+    subcategory: els.subcategory.value
   };
 
   const name = els.filename.value.trim();
@@ -371,6 +369,14 @@ document.querySelectorAll('.modes__btn').forEach((btn) => {
 ['input', 'change'].forEach((evt) => {
   els.filename.addEventListener(evt, refreshDest);
 });
+
+els.category.addEventListener('change', () => {
+  fillSubcategories();
+  updateSaveState();
+});
+els.subcategory.addEventListener('change', updateSaveState);
+
+fillCategories();
 
 els.save.addEventListener('click', save);
 els.options.addEventListener('click', () => chrome.runtime.openOptionsPage());

@@ -33,13 +33,15 @@
         <input id="tags" class="field__input" type="text" autocomplete="off" />
       </label>
 
-      <!-- Read-only: the server works this out from what the page declares
-           about itself, so there is nothing to pick. -->
-      <div class="filed">
-        <span class="filed__label">Filed as</span>
-        <span id="filedAs" class="filed__value"></span>
-        <span id="filedWhy" class="filed__why"></span>
-      </div>
+      <label class="field">
+        <span class="field__label">Category</span>
+        <select id="category" class="field__input"></select>
+      </label>
+
+      <label class="field">
+        <span class="field__label">Subcategory</span>
+        <select id="subcategory" class="field__input"></select>
+      </label>
 
       <details class="advanced">
         <summary class="advanced__summary">Override this clip</summary>

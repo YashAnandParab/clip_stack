@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
 
+import httpx
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, StrictUndefined
@@ -39,7 +40,7 @@ app = FastAPI(title="Clip server", version="1.0.0", docs_url="/docs")
 # The extension calls this from a chrome-extension:// origin.
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^(chrome|moz)-extension://.*$",
+    allow_origin_regex=r"^(chrome|moz)-extension://.*$|^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
@@ -109,6 +110,8 @@ class Clip(BaseModel):
     # Optional overrides. Anything blank is filled from trafilatura's metadata.
     title: str = ""
     domain: str = ""
+    category: str = ""
+    subcategory: str = ""
 
     # Per-clip routing overrides from the popup.
     subfolder: str | None = None
@@ -116,6 +119,13 @@ class Clip(BaseModel):
     template: str | None = None
 
     model_config = {"populate_by_name": True}
+
+
+class URLRequest(BaseModel):
+    url: str
+    category: str = ""
+    subcategory: str = ""
+    tags: list[str] = Field(default_factory=list)
 
 
 class ClipResult(BaseModel):
@@ -144,6 +154,31 @@ def _check_token(supplied: str | None) -> None:
         return  # auth disabled; fine on a localhost-only bind
     if supplied != TOKEN:
         raise HTTPException(status_code=401, detail="Bad or missing X-Clip-Token")
+
+
+async def _clip_from_url(payload: URLRequest) -> Clip:
+    parsed = urlparse(payload.url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise HTTPException(status_code=422, detail="Enter a valid http(s) article URL.")
+
+    try:
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=20,
+            headers={"User-Agent": "Clip-to-Vault/1.0"},
+        ) as client:
+            response = await client.get(payload.url)
+            response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=422, detail=f"Could not fetch that URL: {exc}") from exc
+
+    return Clip(
+        html=response.text,
+        url=str(response.url),
+        category=payload.category,
+        subcategory=payload.subcategory,
+        tags=payload.tags,
+    )
 
 
 def _domain_for(clip: Clip) -> str:
@@ -198,14 +233,12 @@ def _subfolder_template(clip: Clip, rule) -> str:
     return clip.subfolder if clip.subfolder is not None else rule.subfolder
 
 
-def _resolve_taxonomy(rule, variables: dict[str, Any]) -> None:
+def _resolve_taxonomy(clip: Clip, rule, variables: dict[str, Any]) -> None:
     """
     Work out what the note is about and add it to `variables`, in place.
 
-    Nobody is asked. `category` describes the source and comes from the matched
-    site rule; `subcategory` defaults to `{{ site_category }}`, the category the
-    page publishes for itself. A site that declares nothing gets a blank field
-    rather than a guess — blank is searchable, a wrong guess is not.
+    Popup values override automatic detection. Blank values fall back to the
+    matched site rule and the category the page publishes for itself.
 
     Runs before the path templates so that those can reference either one.
     """
@@ -216,8 +249,8 @@ def _resolve_taxonomy(rule, variables: dict[str, Any]) -> None:
         except Exception:
             return ""
 
-    variables["category"] = render(rule.category)
-    variables["subcategory"] = render(rule.subcategory)
+    variables["category"] = clip.category.strip() or render(rule.category)
+    variables["subcategory"] = clip.subcategory.strip() or render(rule.subcategory)
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +290,7 @@ async def clip(payload: Clip, x_clip_token: str | None = Header(default=None)) -
 
     rule = store.rule_for(_domain_for(payload), payload.url)
     variables = _variables(payload, doc, rule.tags)
-    _resolve_taxonomy(rule, variables)
+    _resolve_taxonomy(payload, rule, variables)
 
     # Per-clip overrides from the popup beat the config file.
     subfolder_tpl = _subfolder_template(payload, rule)
@@ -325,6 +358,8 @@ async def clip(payload: Clip, x_clip_token: str | None = Header(default=None)) -
 
 class PreviewResult(BaseModel):
     ok: bool = True
+    html: str
+    url: str
     markdown: str
     title: str
     author: str
@@ -357,7 +392,7 @@ async def preview(payload: Clip, x_clip_token: str | None = Header(default=None)
 
     rule = store.rule_for(_domain_for(payload), payload.url)
     variables = _variables(payload, doc, rule.tags)
-    _resolve_taxonomy(rule, variables)
+    _resolve_taxonomy(payload, rule, variables)
 
     try:
         subfolder = _render_string(_subfolder_template(payload, rule), variables)
@@ -366,6 +401,8 @@ async def preview(payload: Clip, x_clip_token: str | None = Header(default=None)
         subfolder, filename = rule.subfolder, rule.filename
 
     return PreviewResult(
+        html=payload.html,
+        url=payload.url,
         markdown=doc.markdown,
         title=doc.title,
         author=doc.author,
@@ -380,3 +417,17 @@ async def preview(payload: Clip, x_clip_token: str | None = Header(default=None)
         subcategory=variables["subcategory"],
         site_category=doc.site_category,
     )
+
+
+@app.post("/preview-url", response_model=PreviewResult)
+async def preview_url(payload: URLRequest, x_clip_token: str | None = Header(default=None)) -> PreviewResult:
+    """Fetch a public URL, then use the normal preview pipeline."""
+    _check_token(x_clip_token)
+    return await preview(await _clip_from_url(payload), x_clip_token)
+
+
+@app.post("/clip-url", response_model=ClipResult)
+async def clip_url(payload: URLRequest, x_clip_token: str | None = Header(default=None)) -> ClipResult:
+    """Fetch a public URL, then use the normal clip pipeline."""
+    _check_token(x_clip_token)
+    return await clip(await _clip_from_url(payload), x_clip_token)

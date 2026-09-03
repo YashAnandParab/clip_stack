@@ -72,15 +72,13 @@
   <section class="card">
     <h2 class="card__title">Categories</h2>
     <p class="card__lede">
-      Nothing to set here. Every note is filed automatically: the
-      <strong>category</strong> comes from the rule matching the site you clipped,
-      and the <strong>subcategory</strong> from the category the page publishes
-      about itself — the one the author filed it under. A site that declares
-      nothing leaves the field blank rather than guessing.
+      The popup fills these automatically when the page exposes them. If it
+      cannot detect a value, choose the category and subcategory there before
+      sending the clip.
     </p>
     <p class="hint">
-      Change how a site is filed in <code>server/config/config.yaml</code>, next
-      to its other rules.
+      Manual choices override automatic detection for that clip. Site rules in
+      <code>server/config/config.yaml</code> remain the default fallback.
     </p>
   </section>
 
