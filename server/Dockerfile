@@ -13,7 +13,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# strip CRLF: Windows checkouts otherwise put \r in the shebang and bash won't start
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 ENV CLIP_VAULT=/vault \
     CLIP_CONFIG=/config/config.yaml \
