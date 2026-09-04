@@ -24,6 +24,7 @@ defaults:
   template: "default.md.j2"
   on_conflict: "uniquify"      # uniquify | overwrite | skip
   download_assets: false
+  ocr_images: true            # send article images to MinerU and insert the text
   tags: ["clipped"]
   category: ""                 # set per-site — a site is one kind of thing
   subcategory: "{{ site_category }}"
@@ -44,9 +45,11 @@ sites:
 
   - match: ["*.youtube.com", "youtu.be"]
     filename: "{{ date }} {{ title | slug }}"
+    ocr_images: false
     tags: ["video", "transcript"]
 
   - match: ["github.com", "*.github.io"]
+    ocr_images: false
     tags: ["code"]
 
   - match: ["news.ycombinator.com", "*.reddit.com"]

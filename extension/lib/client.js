@@ -68,7 +68,7 @@ export async function checkHealth(settings, timeoutMs = 2500) {
  * a network-level failure carries `.unreachable` so callers can fall back.
  */
 async function postJson(settings, path, payload) {
-  const headers = { 'Content-Type': 'application/json' };
+  const headers = { 'Content-Type': 'application/json', 'X-Clip-Client': 'extension' };
   if (settings.token) headers['X-Clip-Token'] = settings.token;
 
   let resp;

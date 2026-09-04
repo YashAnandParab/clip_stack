@@ -14,34 +14,51 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shutil
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, StrictUndefined
 from pydantic import BaseModel, Field
 
-from .assets import localize_images
+from .assets import process_images
 from .config import BUILTIN_TEMPLATE_DIR, TEMPLATE_DIR, VAULT_PATH, store
+from .database import (
+    database_available,
+    delete_clip_record,
+    get_clip,
+    init_database,
+    list_clips,
+    record_clip,
+)
 from .extraction import extract as extract_content
 from .naming import apply_conflict_policy, resolve_in_vault, slugify
+from .ocr import OCR_BASE_URL, OCR_ENABLED
 
 log = logging.getLogger("clipserver")
 logging.basicConfig(level=os.environ.get("CLIP_LOG_LEVEL", "INFO"))
 
 TOKEN = os.environ.get("CLIP_TOKEN", "").strip()
 
-app = FastAPI(title="Clip server", version="1.0.0", docs_url="/docs")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_database()
+    yield
+
+app = FastAPI(title="Clip server", version="1.0.0", docs_url="/docs", lifespan=lifespan)
 
 # The extension calls this from a chrome-extension:// origin.
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"^(chrome|moz)-extension://.*$|^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -142,7 +159,39 @@ class ClipResult(BaseModel):
     subcategory: str = ""
     assets_saved: int = 0
     assets_found: int = 0
+    ocr_succeeded: int = 0
+    ocr_attempted: int = 0
     overwritten: bool = False
+    history_id: int
+
+
+class ClipHistoryItem(BaseModel):
+    id: int
+    url: str
+    title: str
+    site: str
+    author: str
+    published: str
+    word_count: int
+    strategy: str
+    category: str
+    subcategory: str
+    path: str
+    source_client: str
+    clipped_at: datetime
+
+
+class ClipHistoryResult(BaseModel):
+    items: list[ClipHistoryItem]
+    total: int
+
+
+class DeleteClipResult(BaseModel):
+    ok: bool = True
+    id: int
+    path: str
+    file_deleted: bool
+    assets_deleted: bool
 
 
 # ---------------------------------------------------------------------------
@@ -260,10 +309,14 @@ def _resolve_taxonomy(clip: Clip, rule, variables: dict[str, Any]) -> None:
 @app.get("/health")
 def health() -> dict[str, Any]:
     vault_ok = VAULT_PATH.is_dir() and os.access(VAULT_PATH, os.W_OK)
+    database_ok = database_available()
     return {
-        "ok": vault_ok,
+        "ok": vault_ok and database_ok,
         "vault": str(VAULT_PATH),
         "vault_writable": vault_ok,
+        "database_ok": database_ok,
+        "ocr_enabled": OCR_ENABLED,
+        "ocr_url": OCR_BASE_URL if OCR_ENABLED else "",
         "auth_required": bool(TOKEN),
         "site_rules": store.site_count,
         "config_error": store.error,
@@ -271,7 +324,11 @@ def health() -> dict[str, Any]:
 
 
 @app.post("/clip", response_model=ClipResult)
-async def clip(payload: Clip, x_clip_token: str | None = Header(default=None)) -> ClipResult:
+async def clip(
+    payload: Clip,
+    x_clip_token: str | None = Header(default=None),
+    x_clip_client: str | None = Header(default=None),
+) -> ClipResult:
     _check_token(x_clip_token)
 
     if not VAULT_PATH.is_dir():
@@ -315,11 +372,14 @@ async def clip(payload: Clip, x_clip_token: str | None = Header(default=None)) -
     target = apply_conflict_policy(target, rule.on_conflict)
     target.parent.mkdir(parents=True, exist_ok=True)
 
-    saved = found = 0
-    if rule.download_assets:
-        variables["content"], saved, found = await localize_images(
-            doc.markdown, target, payload.url
-        )
+    images = await process_images(
+        doc.markdown,
+        target,
+        payload.url,
+        download_assets=rule.download_assets,
+        ocr_images=rule.ocr_images,
+    )
+    variables["content"] = images.markdown
 
     try:
         note = env.get_template(template_name).render(**variables)
@@ -331,6 +391,20 @@ async def clip(payload: Clip, x_clip_token: str | None = Header(default=None)) -
     target.write_text(note, encoding="utf-8")
 
     relative = target.relative_to(VAULT_PATH.resolve())
+    relative_path = str(relative).replace(os.sep, "/")
+    try:
+        history_id = record_clip(
+            {**variables, "strategy": doc.strategy},
+            relative_path,
+            (x_clip_client or "unknown")[:40],
+        )
+    except Exception as exc:
+        log.exception("clip was written but history could not be recorded")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Clip was saved to {relative_path}, but PostgreSQL history failed.",
+        ) from exc
+
     log.info(
         "clipped %s -> %s (%s, %s) [%s / %s]",
         _domain_for(payload) or payload.url,
@@ -342,7 +416,7 @@ async def clip(payload: Clip, x_clip_token: str | None = Header(default=None)) -
     )
 
     return ClipResult(
-        path=str(relative).replace(os.sep, "/"),
+        path=relative_path,
         absolute_path=str(target),
         bytes=len(note.encode("utf-8")),
         rule=rule.matched,
@@ -350,9 +424,90 @@ async def clip(payload: Clip, x_clip_token: str | None = Header(default=None)) -
         strategy=doc.strategy,
         category=variables["category"],
         subcategory=variables["subcategory"],
-        assets_saved=saved,
-        assets_found=found,
+        assets_saved=images.assets_saved,
+        assets_found=images.assets_found,
+        ocr_succeeded=images.ocr_succeeded,
+        ocr_attempted=images.ocr_attempted,
         overwritten=overwritten,
+        history_id=history_id,
+    )
+
+
+@app.get("/clips", response_model=ClipHistoryResult)
+def clip_history(
+    limit: int = Query(default=200, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    x_clip_token: str | None = Header(default=None),
+) -> ClipHistoryResult:
+    _check_token(x_clip_token)
+    items, total = list_clips(limit, offset)
+    return ClipHistoryResult(items=items, total=total)
+
+
+def _stored_path_in_vault(relative_path: str) -> Path:
+    """Resolve a database path while refusing absolute or escaping paths."""
+    stored = Path(relative_path)
+    if stored.is_absolute() or ".." in stored.parts:
+        raise HTTPException(status_code=409, detail="Stored clip path is unsafe; nothing deleted.")
+
+    vault_root = VAULT_PATH.resolve()
+    candidate = vault_root / stored
+    if candidate.is_symlink():
+        raise HTTPException(status_code=409, detail="Stored clip path is a symlink; nothing deleted.")
+    target = candidate.resolve()
+    if vault_root not in target.parents or target.suffix.lower() != ".md":
+        raise HTTPException(status_code=409, detail="Stored clip path is unsafe; nothing deleted.")
+    return target
+
+
+@app.delete("/clips/{clip_id}", response_model=DeleteClipResult)
+def delete_clip(
+    clip_id: int,
+    x_clip_token: str | None = Header(default=None),
+) -> DeleteClipResult:
+    """Permanently remove one history record, its note, and note-owned assets."""
+    _check_token(x_clip_token)
+    record = get_clip(clip_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Clip not found.")
+
+    target = _stored_path_in_vault(str(record["path"]))
+    assets_candidate = target.parent / "assets" / target.stem
+    if assets_candidate.is_symlink():
+        raise HTTPException(status_code=409, detail="Stored asset path is a symlink; nothing deleted.")
+    assets_dir = assets_candidate.resolve()
+    vault_root = VAULT_PATH.resolve()
+    if vault_root not in assets_dir.parents:
+        raise HTTPException(status_code=409, detail="Stored asset path is unsafe; nothing deleted.")
+
+    try:
+        file_deleted = target.is_file()
+        if file_deleted:
+            target.unlink()
+
+        assets_deleted = assets_dir.is_dir()
+        if assets_deleted:
+            shutil.rmtree(assets_dir)
+
+        assets_parent = assets_dir.parent
+        if assets_parent.is_dir():
+            try:
+                assets_parent.rmdir()
+            except OSError:
+                pass  # other notes still own asset directories here
+    except OSError as exc:
+        log.exception("failed to delete clip files for history id %s", clip_id)
+        raise HTTPException(status_code=500, detail=f"Could not delete clip files: {exc}") from exc
+
+    if not delete_clip_record(clip_id):
+        raise HTTPException(status_code=404, detail="Clip history record was already deleted.")
+
+    log.info("deleted clip history id %s -> %s", clip_id, record["path"])
+    return DeleteClipResult(
+        id=clip_id,
+        path=str(record["path"]),
+        file_deleted=file_deleted,
+        assets_deleted=assets_deleted,
     )
 
 
@@ -427,7 +582,11 @@ async def preview_url(payload: URLRequest, x_clip_token: str | None = Header(def
 
 
 @app.post("/clip-url", response_model=ClipResult)
-async def clip_url(payload: URLRequest, x_clip_token: str | None = Header(default=None)) -> ClipResult:
+async def clip_url(
+    payload: URLRequest,
+    x_clip_token: str | None = Header(default=None),
+    x_clip_client: str | None = Header(default=None),
+) -> ClipResult:
     """Fetch a public URL, then use the normal clip pipeline."""
     _check_token(x_clip_token)
-    return await clip(await _clip_from_url(payload), x_clip_token)
+    return await clip(await _clip_from_url(payload), x_clip_token, x_clip_client or "web")

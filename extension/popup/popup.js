@@ -310,8 +310,12 @@ async function save() {
       result.assets_found > 0
         ? ` · ${result.assets_saved}/${result.assets_found} images`
         : '';
+    const ocr =
+      result.ocr_attempted > 0
+        ? ` · ${result.ocr_succeeded}/${result.ocr_attempted} OCR`
+        : '';
     const filed = [result.category, result.subcategory].filter(Boolean).join(' › ');
-    setStatus(`Saved ${result.path}${assets}${filed ? ` · ${filed}` : ''}`, 'ok');
+    setStatus(`Saved ${result.path}${assets}${ocr}${filed ? ` · ${filed}` : ''}`, 'ok');
     els.dot.dataset.state = 'up';
   } catch (e) {
     if (e.unreachable && state.settings.fallbackToDownloads) {

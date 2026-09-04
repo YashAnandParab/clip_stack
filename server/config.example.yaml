@@ -20,6 +20,7 @@ defaults:
   template: "default.md.j2"
   on_conflict: "uniquify"      # uniquify | overwrite | skip
   download_assets: false
+  ocr_images: true            # set false globally or for sites you want to skip
   tags: ["clipped"]
   category: ""
   subcategory: "{{ site_category }}"
@@ -41,10 +42,12 @@ sites:
   - match: ["*.youtube.com", "youtu.be"]
     subfolder: "raw/talks"
     filename: "{{ date }} {{ title | slug }}"
+    ocr_images: false
     tags: ["video", "transcript"]
 
   - match: ["github.com", "*.github.io"]
     subfolder: "raw/code"
+    ocr_images: false
     tags: ["code"]
 
   - match: ["news.ycombinator.com", "*.reddit.com"]

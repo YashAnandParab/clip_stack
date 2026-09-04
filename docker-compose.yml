@@ -1,8 +1,27 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: clip-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-clipstack}"
+      POSTGRES_USER: "${POSTGRES_USER:-clipstack}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-clipstack}"
+    volumes:
+      - clip-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   clip-server:
     build: ./server
     container_name: clip-server
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
 
     # 127.0.0.1 on purpose. This endpoint writes files to your disk; it has no
     # business being reachable from the rest of your network.
@@ -15,9 +34,45 @@ services:
       PUID: "${PUID:-1000}"
       PGID: "${PGID:-1000}"
       TZ: "${TZ:-UTC}"
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: "${POSTGRES_DB:-clipstack}"
+      PGUSER: "${POSTGRES_USER:-clipstack}"
+      PGPASSWORD: "${POSTGRES_PASSWORD:-clipstack}"
+      OCR_ENABLED: "${OCR_ENABLED:-true}"
+      OCR_BASE_URL: "${OCR_BASE_URL:-http://mineru-ocr:8766}"
+      OCR_API_KEY: "${OCR_API_KEY:-}"
+      OCR_TIMEOUT: "${OCR_TIMEOUT:-300}"
+      OCR_MAX_IMAGES: "${OCR_MAX_IMAGES:-10}"
+      OCR_MIN_IMAGE_BYTES: "${OCR_MIN_IMAGE_BYTES:-4096}"
+      OCR_IMAGE_ANALYSIS: "${OCR_IMAGE_ANALYSIS:-false}"
 
     volumes:
       # Your notes folder. Everything the server writes lands under here.
       - ${VAULT_PATH:?set VAULT_PATH in .env}:/vault
       # Rules and custom templates. Read-only: the server never edits them.
       - ./server/config:/config:ro
+    networks:
+      - default
+      - local-ai
+
+  clip-frontend:
+    build:
+      context: ./frontend
+      args:
+        # Used by the visitor's browser, so this points at the host API port.
+        VITE_API_URL: "http://127.0.0.1:${CLIP_PORT:-8765}"
+    container_name: clip-frontend
+    restart: unless-stopped
+    depends_on:
+      - clip-server
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:80"
+
+volumes:
+  clip-postgres-data:
+
+networks:
+  local-ai:
+    name: local-ai
+    external: true

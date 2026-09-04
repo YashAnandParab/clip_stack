@@ -60,6 +60,22 @@ curl http://127.0.0.1:8765/health
 
 You should get `"ok": true` and `"vault_writable": true`.
 
+Compose starts PostgreSQL, builds the server and web frontend, and keeps clip
+history in a named database volume. Open
+`http://127.0.0.1:3000` to clip a public article by URL. Set
+`FRONTEND_PORT` in `.env` if you want to use a different frontend port.
+
+The frontend loads saved clips from PostgreSQL when it opens and refreshes the
+list every five seconds. Clips sent by the browser extension therefore appear
+in the web UI without restarting it. The history and counter survive container
+restarts and rebuilds; `docker compose down -v` is the command that deliberately
+removes the database volume.
+
+History is shown 10 articles at a time with Previous and Next controls. Open a
+saved article and choose **Delete article** to permanently remove its PostgreSQL
+record, Markdown file, and note-specific `assets/<note name>/` directory. The UI
+asks for confirmation before sending the delete request.
+
 `restart: unless-stopped` means it comes back on reboot. You start it once.
 
 ### 2. Load the extension
@@ -187,6 +203,37 @@ Set `download_assets: true` on a rule. The server fetches each image, writes it 
 
 Trafilatura resolves `<a href>` against the page URL but leaves `<img src>` relative, so image URLs are made absolute before anything else runs.
 
+### OCR inside article images
+
+Clipstack can send extracted article images to a separately hosted MinerU OCR
+service and insert the returned Markdown immediately below the corresponding
+image. No Playwright or BeautifulSoup is involved: the extension has already
+rendered the page, and Trafilatura preserves useful images in the extracted
+Markdown.
+
+The MinerU container and `clip-server` must share the external `local-ai`
+Docker network. The default endpoint is `http://mineru-ocr:8766/v1/ocr`.
+
+```yaml
+defaults:
+  ocr_images: true
+
+sites:
+  - match: ["*.youtube.com", "github.com"]
+    ocr_images: false
+```
+
+Useful `.env` controls are `OCR_ENABLED`, `OCR_BASE_URL`, `OCR_API_KEY`,
+`OCR_TIMEOUT`, `OCR_MAX_IMAGES`, `OCR_MIN_IMAGE_BYTES`, and
+`OCR_IMAGE_ANALYSIS`. OCR is submitted sequentially because MinerU serializes
+GPU inference. Unsupported, tiny, inaccessible, or failed images are skipped;
+the original clip still saves.
+
+Injected text is bounded by `<!-- clipstack-ocr:start -->` and
+`<!-- clipstack-ocr:end -->` comments. `download_assets` remains independent:
+OCR can run while an image stays remote, or reuse the same downloaded bytes
+when local asset saving is enabled.
+
 ---
 
 ## Endpoints
@@ -194,6 +241,8 @@ Trafilatura resolves `<a href>` against the page URL but leaves `<img src>` rela
 | | |
 |---|---|
 | `GET /health` | vault path, writability, auth, rule count, config errors |
+| `GET /clips` | paginated persistent clip history (`limit` and `offset`) |
+| `DELETE /clips/{id}` | permanently delete history, Markdown, and note-owned images |
 | `POST /clip` | extract, route, render, write. Returns the path and `strategy` |
 | `POST /preview` | extract and report back, **writing nothing** |
 | `GET /docs` | FastAPI's interactive docs |
@@ -235,6 +284,11 @@ Turn the fallback off in settings if you'd rather see a hard failure.
 ```
 docker-compose.yml
 .env.example
+frontend/
+  Dockerfile              builds the Vite app and serves it with Nginx
+  nginx.conf              production static-file configuration
+  src/                    React web interface
+  package.json            frontend build scripts and dependencies
 server/
   Dockerfile              python:3.12-slim + gosu
   entrypoint.sh           drops root to PUID/PGID so files aren't root-owned
@@ -257,7 +311,10 @@ extension/
   popup/  options/
 ```
 
-No build step on either side. Python is plain modules; the extension is plain ES modules with no bundle at all.
+Python is plain modules and the extension is plain ES modules with no bundle.
+The optional React frontend is built automatically by Docker Compose.
+PostgreSQL stores clip metadata in the `clip-postgres-data` named volume; the
+Markdown article itself remains in `VAULT_PATH`.
 
 `server/config/` is mounted, so routing rules and custom templates apply immediately. `server/app/` is **copied into the image**, so Python edits need `docker compose up -d --build` — a restart won't pick them up.
 
