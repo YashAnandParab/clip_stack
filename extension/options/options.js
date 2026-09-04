@@ -12,7 +12,6 @@ function currentSettings() {
   return {
     serverUrl: $('serverUrl').value.trim() || DEFAULTS.serverUrl,
     token: $('token').value,
-    defaultMode: $('defaultMode').value,
     defaultTags: $('defaultTags').value.trim(),
     fallbackToDownloads: $('fallbackToDownloads').checked,
     downloadsSubfolder: $('downloadsSubfolder').value.trim() || DEFAULTS.downloadsSubfolder
@@ -23,7 +22,6 @@ async function load() {
   const s = await loadSettings();
   $('serverUrl').value = s.serverUrl;
   $('token').value = s.token;
-  $('defaultMode').value = s.defaultMode;
   $('defaultTags').value = s.defaultTags;
   $('fallbackToDownloads').checked = s.fallbackToDownloads;
   $('downloadsSubfolder').value = s.downloadsSubfolder;

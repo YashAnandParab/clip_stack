@@ -16,6 +16,13 @@ function Select({ label, value, onChange, disabled = false, children }) {
   return <label className="select-field"><span>{label}</span><select value={value} onChange={onChange} disabled={disabled}><option value="">Select {label.toLowerCase()}</option>{children}</select></label>;
 }
 
+function OcrChoice({ checked, onChange }) {
+  return <label className="ocr-choice">
+    <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+    <span className="ocr-choice-copy"><strong>Process article images</strong><small>Use OCR to read meaningful image text. This takes longer.</small></span>
+  </label>;
+}
+
 function MetaTable({ article, onChange, readOnly = false }) {
   const rows = [['Source', article.site || 'Unknown'], ['Author', article.author || 'Not detected'], ['Published', article.published || 'Not detected'], ['Words', article.word_count?.toLocaleString() || '—'], ['Strategy', article.strategy || '—'], ['URL', article.url]];
   return <div className="detail-grid">
@@ -24,6 +31,7 @@ function MetaTable({ article, onChange, readOnly = false }) {
       <div className="taxonomy-head"><span>Filing</span>{article.category && article.subcategory ? <em className="detected">Auto-detected</em> : <em className="needs">Needs your choice</em>}</div>
       <Select label="Category" value={article.category} disabled={readOnly} onChange={(e) => onChange({ category: e.target.value, subcategory: '' })}>{Object.keys(TAXONOMY).map((item) => <option key={item} value={item}>{item}</option>)}</Select>
       <Select label="Subcategory" value={article.subcategory} disabled={readOnly} onChange={(e) => onChange({ subcategory: e.target.value })}>{(TAXONOMY[article.category] || []).map((item) => <option key={item} value={item}>{item}</option>)}</Select>
+      {!readOnly && <OcrChoice checked={Boolean(article.ocr_images)} onChange={(checked) => onChange({ ocr_images: checked })} />}
     </div>
   </div>;
 }
@@ -116,7 +124,7 @@ function App() {
 
   async function save(article) {
     update(article.id, { saving: true }); setMessage('');
-    try { const result = await request('/clip', { html: article.html, url: article.url, category: article.category, subcategory: article.subcategory }); update(article.id, { saving: false, status: 'saved', path: result.path }); setPage(0); await loadHistory(false, 0); const ocr = result.ocr_attempted ? ` · OCR ${result.ocr_succeeded}/${result.ocr_attempted}` : ''; setMessage(`Saved to ${result.path}${ocr}`); }
+    try { const result = await request('/clip', { html: article.html, url: article.url, category: article.category, subcategory: article.subcategory, ocr_images: Boolean(article.ocr_images) }); update(article.id, { saving: false, status: 'saved', path: result.path }); setPage(0); await loadHistory(false, 0); const ocr = result.ocr_attempted ? ` · OCR ${result.ocr_succeeded}/${result.ocr_attempted}` : ''; setMessage(`Saved to ${result.path}${ocr}`); }
     catch (error) { update(article.id, { saving: false }); setMessage(error.message); }
   }
 

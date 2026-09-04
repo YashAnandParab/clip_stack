@@ -24,7 +24,7 @@ defaults:
   template: "default.md.j2"
   on_conflict: "uniquify"      # uniquify | overwrite | skip
   download_assets: false
-  ocr_images: true            # send article images to MinerU and insert the text
+  ocr_images: false           # opt in per clip from the extension or web UI
   tags: ["clipped"]
   category: ""                 # set per-site — a site is one kind of thing
   subcategory: "{{ site_category }}"

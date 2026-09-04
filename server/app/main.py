@@ -18,7 +18,7 @@ import shutil
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 from .assets import process_images
 from .config import BUILTIN_TEMPLATE_DIR, TEMPLATE_DIR, VAULT_PATH, store
 from .database import (
+    backfill_vault_history,
     database_available,
     delete_clip_record,
     get_clip,
@@ -50,6 +51,9 @@ TOKEN = os.environ.get("CLIP_TOKEN", "").strip()
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_database()
+    imported = backfill_vault_history(VAULT_PATH)
+    if imported:
+        log.info("imported %d existing vault clips into history", imported)
     yield
 
 app = FastAPI(title="Clip server", version="1.0.0", docs_url="/docs", lifespan=lifespan)
@@ -121,7 +125,6 @@ class Clip(BaseModel):
 
     html: str
     url: str
-    mode: Literal["article", "page"] = "article"
     tags: list[str] = Field(default_factory=list)
 
     # Optional overrides. Anything blank is filled from trafilatura's metadata.
@@ -129,6 +132,7 @@ class Clip(BaseModel):
     domain: str = ""
     category: str = ""
     subcategory: str = ""
+    ocr_images: bool | None = None
 
     # Per-clip routing overrides from the popup.
     subfolder: str | None = None
@@ -143,6 +147,7 @@ class URLRequest(BaseModel):
     category: str = ""
     subcategory: str = ""
     tags: list[str] = Field(default_factory=list)
+    ocr_images: bool | None = None
 
 
 class ClipResult(BaseModel):
@@ -227,6 +232,7 @@ async def _clip_from_url(payload: URLRequest) -> Clip:
         category=payload.category,
         subcategory=payload.subcategory,
         tags=payload.tags,
+        ocr_images=payload.ocr_images,
     )
 
 
@@ -261,7 +267,6 @@ def _variables(clip: Clip, doc, rule_tags: list[str]) -> dict[str, Any]:
         # category/subcategory themselves are added by _resolve_taxonomy once
         # these are known, so a path template can still reference them.
         "site_category": doc.site_category,
-        "mode": clip.mode,
         "date": now.strftime("%Y-%m-%d"),
         "time": now.strftime("%H:%M"),
         "datetime": now.isoformat(timespec="seconds"),
@@ -337,12 +342,11 @@ async def clip(
             detail=f"Vault {VAULT_PATH} is not mounted. Check the volume in docker-compose.yml.",
         )
 
-    doc = extract_content(payload.html, payload.url, payload.mode)
+    doc = extract_content(payload.html, payload.url)
     if doc is None:
         raise HTTPException(
             status_code=422,
-            detail='No readable content found on this page. Try "Whole page" mode, '
-                   'or select the text you want and use "Selection".',
+            detail="No readable article content found on this page.",
         )
 
     rule = store.rule_for(_domain_for(payload), payload.url)
@@ -377,7 +381,11 @@ async def clip(
         target,
         payload.url,
         download_assets=rule.download_assets,
-        ocr_images=rule.ocr_images,
+        ocr_images=(
+            payload.ocr_images
+            if payload.ocr_images is not None
+            else rule.ocr_images
+        ),
     )
     variables["content"] = images.markdown
 
@@ -537,12 +545,11 @@ async def preview(payload: Clip, x_clip_token: str | None = Header(default=None)
     """Extract and report back without writing anything."""
     _check_token(x_clip_token)
 
-    doc = extract_content(payload.html, payload.url, payload.mode)
+    doc = extract_content(payload.html, payload.url)
     if doc is None:
         raise HTTPException(
             status_code=422,
-            detail='No readable content found on this page. Try "Whole page" mode, '
-                   'or select the text you want and use "Selection".',
+            detail="No readable article content found on this page.",
         )
 
     rule = store.rule_for(_domain_for(payload), payload.url)

@@ -9,7 +9,6 @@
 export const DEFAULTS = {
   serverUrl: 'http://127.0.0.1:8765',
   token: '',
-  defaultMode: 'article',
   defaultTags: '',
   fallbackToDownloads: true,
   downloadsSubfolder: 'Clips'

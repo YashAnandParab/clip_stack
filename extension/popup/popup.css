@@ -5,42 +5,24 @@
 --------------------------------------------------------------------------- */
 
 :root {
-  --ink: #17181d;
-  --ink-2: #5b6070;
-  --ink-3: #878c9c;
-  --paper: #fcfcfd;
-  --panel: #f1f2f6;
-  --panel-2: #e9ebf1;
-  --line: #dfe1e9;
-  --accent: #4b36cf;
-  --accent-soft: #ece9fb;
+  --ink: #14231f;
+  --ink-2: #527166;
+  --ink-3: #738078;
+  --paper: #f7f8f3;
+  --panel: #eef3e9;
+  --panel-2: #e9eee7;
+  --line: #cbd6cb;
+  --accent: #17362d;
+  --accent-soft: #dfff4f;
   --on-accent: #ffffff;
-  --ok: #10704f;
-  --err: #b3261e;
-  --err-soft: #fdeceb;
+  --ok: #49875a;
+  --err: #a2382d;
+  --err-soft: #f7e8e4;
 
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
 
   --r: 7px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ink: #eef0f5;
-    --ink-2: #a4aab9;
-    --ink-3: #7b8191;
-    --paper: #16171c;
-    --panel: #1f2128;
-    --panel-2: #282b34;
-    --line: #31343e;
-    --accent: #9b8bff;
-    --accent-soft: #262341;
-    --on-accent: #16171c;
-    --ok: #4ecf9f;
-    --err: #ff8b82;
-    --err-soft: #3a1f1d;
-  }
 }
 
 * { box-sizing: border-box; }
@@ -89,38 +71,6 @@ body {
   border-radius: 4px;
 }
 .bar__link:hover { color: var(--accent); }
-
-/* --- mode switch -------------------------------------------------------- */
-
-.modes {
-  display: flex;
-  gap: 2px;
-  padding: 10px 14px 0;
-}
-
-.modes__btn {
-  flex: 1;
-  padding: 6px 4px;
-  border: 1px solid var(--line);
-  background: var(--paper);
-  color: var(--ink-2);
-  font-family: var(--mono);
-  font-size: 10.5px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-.modes__btn:first-child { border-radius: var(--r) 0 0 var(--r); }
-.modes__btn:last-child { border-radius: 0 var(--r) var(--r) 0; }
-.modes__btn + .modes__btn { margin-left: -1px; }
-.modes__btn:hover { background: var(--panel); }
-.modes__btn[aria-pressed="true"] {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
-  position: relative;
-  z-index: 1;
-}
 
 /* --- body --------------------------------------------------------------- */
 
@@ -171,6 +121,44 @@ body {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* --- per-clip OCR ------------------------------------------------------- */
+
+.ocr-choice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.ocr-choice input {
+  width: 16px;
+  height: 16px;
+  margin: 1px 0 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.ocr-choice__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ocr-choice__copy strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ocr-choice__copy small {
+  color: var(--ink-3);
+  font-size: 10px;
+  line-height: 1.35;
 }
 
 /* --- filed as ------------------------------------------------------------ */
@@ -320,7 +308,6 @@ body {
 .save:hover:not(:disabled) { filter: brightness(1.08); }
 .save:disabled { opacity: 0.45; cursor: default; }
 .save:focus-visible,
-.modes__btn:focus-visible,
 .bar__link:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;

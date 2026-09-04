@@ -4,6 +4,43 @@
   opacity: 0.72;
 }
 
+.ocr-choice {
+  align-items: flex-start;
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+  display: flex;
+  gap: 11px;
+  margin-top: 15px;
+  padding-top: 14px;
+}
+
+.ocr-choice input {
+  accent-color: var(--green);
+  cursor: pointer;
+  height: 16px;
+  margin: 1px 0 0;
+  width: 16px;
+}
+
+.ocr-choice-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ocr-choice-copy strong {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
+}
+
+.ocr-choice-copy small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+  text-transform: none;
+}
+
 .saved-label {
   color: #49875a;
   font: 10px 'Space Mono', monospace;

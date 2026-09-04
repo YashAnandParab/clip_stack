@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import re
 import time
+from datetime import datetime
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import psycopg
+import yaml
 from psycopg.rows import dict_row
+
+
+log = logging.getLogger("clipserver.database")
+
+FRONTMATTER_RE = re.compile(r"\A---\s*\r?\n(.*?)\r?\n---(?:\s*\r?\n|\s*\Z)", re.DOTALL)
 
 
 def _connect() -> psycopg.Connection:
@@ -114,6 +125,78 @@ def record_clip(values: dict[str, Any], path: str, source_client: str) -> int:
         )
         row = cursor.fetchone()
         return int(row["id"])
+
+
+def backfill_vault_history(vault_path: Path) -> int:
+    """Import older Clipstack notes that predate PostgreSQL history.
+
+    Only notes with both ``source`` and ``clipped`` frontmatter are eligible,
+    which avoids treating unrelated Markdown files in the vault as clips.
+    Existing paths are left untouched, so this is safe to run at every start.
+    """
+    imported = 0
+    for note_path in vault_path.rglob("*.md"):
+        try:
+            text = note_path.read_text(encoding="utf-8", errors="replace")
+            match = FRONTMATTER_RE.match(text)
+            if match is None:
+                continue
+            metadata = yaml.safe_load(match.group(1)) or {}
+            if not isinstance(metadata, dict):
+                continue
+
+            source = str(metadata.get("source") or "").strip()
+            clipped = metadata.get("clipped")
+            if not source.startswith(("http://", "https://")) or not clipped:
+                continue
+
+            title = str(metadata.get("title") or note_path.stem).strip() or note_path.stem
+            site = str(metadata.get("site") or "").strip()
+            if not site:
+                site = (urlparse(source).hostname or "").removeprefix("www.")
+
+            clipped_at = clipped if isinstance(clipped, datetime) else str(clipped)
+            relative_path = note_path.relative_to(vault_path).as_posix()
+            body = text[match.end():]
+            word_count = metadata.get("words")
+            if not isinstance(word_count, int):
+                word_count = len(re.findall(r"\b\w+\b", body))
+
+            with _connect() as connection, connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO clips (
+                        url, title, site, author, published, word_count,
+                        strategy, category, subcategory, path, source_client,
+                        clipped_at
+                    )
+                    VALUES (
+                        %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s
+                    )
+                    ON CONFLICT (path) DO NOTHING
+                    RETURNING id
+                    """,
+                    (
+                        source,
+                        title,
+                        site,
+                        str(metadata.get("author") or ""),
+                        str(metadata.get("published") or ""),
+                        word_count,
+                        "vault import",
+                        str(metadata.get("category") or ""),
+                        str(metadata.get("subcategory") or ""),
+                        relative_path,
+                        "vault-import",
+                        clipped_at,
+                    ),
+                )
+                if cursor.fetchone() is not None:
+                    imported += 1
+        except (OSError, ValueError, TypeError, yaml.YAMLError, psycopg.Error) as exc:
+            log.warning("could not import vault history for %s: %s", note_path, exc)
+    return imported
 
 
 def list_clips(limit: int, offset: int) -> tuple[list[dict[str, Any]], int]:

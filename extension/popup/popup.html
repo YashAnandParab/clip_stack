@@ -13,11 +13,6 @@
     </div>
   </header>
 
-  <div class="modes" role="group" aria-label="What to clip">
-    <button class="modes__btn" data-mode="article" type="button">Article</button>
-    <button class="modes__btn" data-mode="page" type="button">Whole page</button>
-  </div>
-
   <main class="body">
     <div id="loading" class="note note--busy">Reading the page…</div>
     <div id="error" class="note note--error" hidden></div>
@@ -41,6 +36,14 @@
       <label class="field">
         <span class="field__label">Subcategory</span>
         <select id="subcategory" class="field__input"></select>
+      </label>
+
+      <label class="ocr-choice">
+        <input id="ocrImages" type="checkbox" />
+        <span class="ocr-choice__copy">
+          <strong>Process article images</strong>
+          <small>Use OCR to read meaningful image text. This takes longer.</small>
+        </span>
       </label>
 
       <details class="advanced">

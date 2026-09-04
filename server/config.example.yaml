@@ -20,7 +20,7 @@ defaults:
   template: "default.md.j2"
   on_conflict: "uniquify"      # uniquify | overwrite | skip
   download_assets: false
-  ocr_images: true            # set false globally or for sites you want to skip
+  ocr_images: false           # opt in per clip from the extension or web UI
   tags: ["clipped"]
   category: ""
   subcategory: "{{ site_category }}"

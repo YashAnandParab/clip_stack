@@ -29,7 +29,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "template": "default.md.j2",
         "on_conflict": "uniquify",
         "download_assets": False,
-        "ocr_images": True,
+        "ocr_images": False,
         "tags": [],
         # Frontmatter, not routing, and nobody is asked for either at clip time.
         # `category` describes the source, so it is set per-site below.
@@ -52,7 +52,7 @@ class Rule:
     template: str
     on_conflict: str
     download_assets: bool
-    ocr_images: bool = True
+    ocr_images: bool = False
     category: str = ""
     subcategory: str = ""
     tags: list[str] = field(default_factory=list)
@@ -137,7 +137,7 @@ class ConfigStore:
             template=str(merged.get("template", "default.md.j2")),
             on_conflict=str(merged.get("on_conflict", "uniquify")),
             download_assets=bool(merged.get("download_assets", False)),
-            ocr_images=bool(merged.get("ocr_images", True)),
+            ocr_images=bool(merged.get("ocr_images", False)),
             category=str(merged.get("category", "")),
             subcategory=str(merged.get("subcategory", "")),
             tags=list(merged.get("tags") or []),

@@ -12,7 +12,17 @@ from urllib.parse import quote
 
 import httpx
 
-from .ocr import OCR_ENABLED, OCR_MAX_IMAGES, OCR_TIMEOUT, eligible_for_ocr, extract_image_markdown
+from .ocr import (
+    OCR_ENABLED,
+    OCR_MAX_IMAGES,
+    OCR_MIN_IMAGE_HEIGHT,
+    OCR_MIN_IMAGE_WIDTH,
+    OCR_TIMEOUT,
+    eligible_for_ocr,
+    extract_image_markdown,
+    image_dimensions,
+    looks_like_noncontent_image,
+)
 
 IMAGE_RE = re.compile(r"!\[(?P<alt>[^\]]*)\]\((?P<url>[^)\s]+)(?P<rest>\s+\"[^\"]*\")?\)")
 
@@ -47,6 +57,19 @@ class ImageProcessingResult:
     assets_found: int = 0
     ocr_succeeded: int = 0
     ocr_attempted: int = 0
+
+
+def _is_content_image(image: FetchedImage, alt: str = "") -> bool:
+    """Reject named decoration and undersized avatars before storing or OCR."""
+    if looks_like_noncontent_image(image.url, alt):
+        return False
+    if image.data is None:
+        return True
+    dimensions = image_dimensions(image.data, image.content_type)
+    if dimensions is None:
+        return True
+    width, height = dimensions
+    return width >= OCR_MIN_IMAGE_WIDTH and height >= OCR_MIN_IMAGE_HEIGHT
 
 
 def _extension_for(url: str, content_type: str | None) -> str:
@@ -100,11 +123,12 @@ async def process_images(
     ocr_images: bool,
 ) -> ImageProcessingResult:
     """Process Markdown images once while preserving their original order."""
-    urls = list(dict.fromkeys(
-        match.group("url")
-        for match in IMAGE_RE.finditer(markdown)
-        if match.group("url").startswith(("http://", "https://"))
-    ))
+    image_hints: dict[str, str] = {}
+    for match in IMAGE_RE.finditer(markdown):
+        url = match.group("url")
+        if url.startswith(("http://", "https://")):
+            image_hints.setdefault(url, match.group("alt"))
+    urls = list(image_hints)
     if not urls or not (download_assets or (ocr_images and OCR_ENABLED)):
         return ImageProcessingResult(markdown=markdown)
 
@@ -114,11 +138,16 @@ async def process_images(
         fetched = await asyncio.gather(
             *(_fetch_one(client, url, page_url, sem) for url in urls)
         )
+        content_images = [
+            image
+            for image in fetched
+            if _is_content_image(image, image_hints.get(image.url, ""))
+        ]
 
         local_names: dict[str, str] = {}
         if download_assets:
             assets_dir = note_path.parent / "assets" / note_path.stem
-            for image in fetched:
+            for image in content_images:
                 if image.data is None:
                     continue
                 assets_dir.mkdir(parents=True, exist_ok=True)
@@ -130,7 +159,7 @@ async def process_images(
         if ocr_images and OCR_ENABLED:
             # MinerU serializes inference on one GPU, so submit in article
             # order rather than creating concurrent requests.
-            for image in fetched:
+            for image in content_images:
                 if ocr_attempted >= OCR_MAX_IMAGES:
                     break
                 if image.data is None or not eligible_for_ocr(image.data, image.content_type):
@@ -163,7 +192,7 @@ async def process_images(
     return ImageProcessingResult(
         markdown=IMAGE_RE.sub(replace, markdown),
         assets_saved=len(local_names),
-        assets_found=len(urls) if download_assets else 0,
+        assets_found=len(content_images) if download_assets else 0,
         ocr_succeeded=len(ocr_markdown),
         ocr_attempted=ocr_attempted,
     )

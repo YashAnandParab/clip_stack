@@ -12,15 +12,8 @@
 (() => {
   if (globalThis.__clipvault_extract) return; // already injected in this tab
 
-  /**
-   * Both modes send the same document; `mode` only tells the server how hard to
-   * work at spotting the article inside it.
-   *
-   * @param {{mode: 'article'|'page'}} opts
-   * @returns {{ok: boolean, html?: string, url?: string, mode?: string, error?: string}}
-   */
-  globalThis.__clipvault_extract = function (opts) {
-    const mode = opts && opts.mode === 'page' ? 'page' : 'article';
+  /** @returns {{ok: boolean, html?: string, url?: string, error?: string}} */
+  globalThis.__clipvault_extract = function () {
     const html = document.documentElement.outerHTML;
 
     if (!html || html.length < 100) {
@@ -29,6 +22,6 @@
 
     // location.href rather than the tab's URL, so redirects and in-page
     // navigation give the address actually on screen.
-    return { ok: true, mode, url: location.href, html };
+    return { ok: true, url: location.href, html };
   };
 })();

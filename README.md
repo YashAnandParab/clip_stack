@@ -89,21 +89,11 @@ The dot in the popup header is the server's status. Green means the container is
 
 ---
 
-## Modes
+## Extraction
 
-Three buttons in the popup. The mode is sent with the clip and decides how the server extracts.
-
-| Mode | What the browser sends | What the server does |
-|---|---|---|
-| **Article** | the whole document | trafilatura at default precision — the normal path |
-| **Whole page** | the whole document | trafilatura with `favor_recall`, keeps more marginal content |
-| **Selection** | your selection, plus the real `<head>` | straight HTML→Markdown, no content detection |
-
-Selection mode deliberately skips extraction. You already chose the content; running article detection over it would strip short selections. The `<head>` rides along so title, author and date still resolve.
-
-Article and page mode send the **entire** document, not just `<body>` — `og:title`, `article:published_time` and JSON-LD all live in `<head>`.
-
-The popup reports which path ran, and the response carries it as `strategy`.
+The extension sends the entire rendered document, including `<head>`, and the
+server extracts its readable article with Trafilatura. Keeping `<head>`
+preserves metadata such as `og:title`, `article:published_time`, and JSON-LD.
 
 ---
 
@@ -184,7 +174,7 @@ tags: [{{ tags | yaml_list }}]
 {{ content }}
 ```
 
-**Variables:** `title` `content` `url` `domain` `site` `author` `description` `published` `image` `favicon` `language` `word_count` `tags` `category` `subcategory` `mode` `date` `time` `datetime` `timestamp` `year` `month` `day` `utc`
+**Variables:** `title` `content` `url` `domain` `site` `author` `description` `published` `image` `favicon` `language` `word_count` `tags` `category` `subcategory` `date` `time` `datetime` `timestamp` `year` `month` `day` `utc`
 
 **Filters:** `| yaml` (quote and escape for frontmatter), `| yaml_list` (inline YAML array), `| slug`, plus all of Jinja's built-ins.
 
@@ -207,16 +197,17 @@ Trafilatura resolves `<a href>` against the page URL but leaves `<img src>` rela
 
 Clipstack can send extracted article images to a separately hosted MinerU OCR
 service and insert the returned Markdown immediately below the corresponding
-image. No Playwright or BeautifulSoup is involved: the extension has already
-rendered the page, and Trafilatura preserves useful images in the extracted
-Markdown.
+image. OCR is opt-in for each clip in both the extension and web UI, so ordinary
+clips do not spend GPU time. No Playwright or BeautifulSoup is involved: the
+extension has already rendered the page, and Trafilatura preserves useful
+images in the extracted Markdown.
 
 The MinerU container and `clip-server` must share the external `local-ai`
 Docker network. The default endpoint is `http://mineru-ocr:8766/v1/ocr`.
 
 ```yaml
 defaults:
-  ocr_images: true
+  ocr_images: false
 
 sites:
   - match: ["*.youtube.com", "github.com"]
@@ -226,13 +217,28 @@ sites:
 Useful `.env` controls are `OCR_ENABLED`, `OCR_BASE_URL`, `OCR_API_KEY`,
 `OCR_TIMEOUT`, `OCR_MAX_IMAGES`, `OCR_MIN_IMAGE_BYTES`, and
 `OCR_IMAGE_ANALYSIS`. OCR is submitted sequentially because MinerU serializes
-GPU inference. Unsupported, tiny, inaccessible, or failed images are skipped;
-the original clip still saves.
+GPU inference. Images whose
+URL or alt text identifies a logo, icon, avatar, profile image, badge, or
+masthead are neither stored as local assets nor submitted to OCR. Images below
+200×120 pixels are also excluded from local assets and OCR, which
+catches generic hashed avatar URLs such as Medium's 32×32 profile images.
+Unsupported, inaccessible, or failed images are skipped by OCR; the original
+clip still saves.
 
 Injected text is bounded by `<!-- clipstack-ocr:start -->` and
 `<!-- clipstack-ocr:end -->` comments. `download_assets` remains independent:
 OCR can run while an image stays remote, or reuse the same downloaded bytes
 when local asset saving is enabled.
+
+## Tables
+
+HTML tables are automatically converted with Table2MD before the article is
+saved. Clipstack keeps marker pairs around each original table while
+Trafilatura selects the article, then replaces Trafilatura's provisional table
+text with normalized Markdown in the same location. This preserves header
+separator rows, links, captions, and complex `rowspan`/`colspan` grids. If an
+individual table cannot be converted, Trafilatura's original result is kept so
+the clip still succeeds.
 
 ---
 
@@ -249,7 +255,13 @@ when local asset saving is enabled.
 
 `/preview` exists because extraction moved server-side — the popup can no longer build the note itself, so it asks. Same payload as `/clip`. It's also what lets the popup show the real destination path instead of a placeholder.
 
-Both take the same body: `html`, `url`, `mode`, `tags`, `category`, `subcategory`, and optional `title`, `subfolder`, `filename`, `template` overrides. `/clip` requires `category` and `subcategory`; `/preview` does not, because the popup previews before you have picked. A blank `title` means trafilatura's wins; the popup only sends one when you actually edit it.
+Both take the same body: `html`, `url`, `tags`, `category`,
+`subcategory`, and optional `title`, `subfolder`, `filename`, `template`, and
+`ocr_images` overrides. The extension and web UI always send `ocr_images` from
+their per-clip toggle; omitting it falls back to the matched server rule.
+`/clip` requires `category` and `subcategory`; `/preview` does not, because the
+popup previews before you have picked. A blank `title` means trafilatura's wins;
+the popup only sends one when you actually edit it.
 
 ---
 
@@ -342,7 +354,7 @@ For clipping articles, which is the actual use case, this extracts more reliably
 
 **401** — token mismatch between `.env` and the extension. They must be identical, or both empty.
 
-**"No readable content found"** — a 422. Trafilatura found nothing it considered article text, which happens on very short pages and on app-shaped pages that aren't documents. Try **Whole page**, or select what you want and use **Selection**.
+**"No readable article content found"** — a 422. Trafilatura found nothing it considered article text, which can happen on very short or app-shaped pages.
 
 **A Python change didn't take effect** — `docker compose up -d --build`. `restart` reuses the old image.
 

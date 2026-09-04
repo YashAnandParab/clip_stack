@@ -17,6 +17,7 @@ const els = {
   tags: $('tags'),
   category: $('category'),
   subcategory: $('subcategory'),
+  ocrImages: $('ocrImages'),
   filename: $('filename'),
   preview: $('previewText'),
   stats: $('stats'),
@@ -30,8 +31,7 @@ const els = {
 const state = {
   settings: null,
   tab: null,
-  mode: 'article',
-  extracted: null,  // { html, url, mode } captured from the tab
+  extracted: null,  // { html, url } captured from the tab
   preview: null,    // the server's /preview response
   health: null,
   busy: false
@@ -144,11 +144,11 @@ function refreshDest() {
 // Extraction
 // ---------------------------------------------------------------------------
 
-async function extract(mode) {
+async function extract() {
   els.error.hidden = true;
   els.form.hidden = true;
   els.loading.hidden = false;
-  els.loading.textContent = mode === 'page' ? 'Reading the whole page…' : 'Reading the page…';
+  els.loading.textContent = 'Reading the page…';
   els.save.disabled = true;
   state.preview = null;
 
@@ -166,8 +166,7 @@ async function extract(mode) {
   try {
     results = await chrome.scripting.executeScript({
       target: { tabId: state.tab.id },
-      func: (opts) => globalThis.__clipvault_extract(opts),
-      args: [{ mode }]
+      func: () => globalThis.__clipvault_extract()
     });
   } catch (e) {
     showError('Extraction failed: ' + (e?.message || String(e)));
@@ -219,10 +218,7 @@ async function extract(mode) {
   fillSubcategories(state.preview.subcategory || '');
   updateSaveState();
 
-  // Surface anything other than the normal path — a whole-page extraction is
-  // worth eyeballing in the preview.
-  const strategy = state.preview.strategy;
-  setStatus(strategy && strategy !== 'trafilatura (article)' ? `Extracted via ${strategy}` : '');
+  setStatus('');
 
   refreshPreview();
 }
@@ -253,11 +249,11 @@ function buildPayload() {
   const payload = {
     html: d.html,
     url: d.url,
-    mode: d.mode,
     title: els.title.value || '',
     tags: els.tags.value.split(',').map((t) => t.trim()).filter(Boolean),
     category: els.category.value,
-    subcategory: els.subcategory.value
+    subcategory: els.subcategory.value,
+    ocr_images: els.ocrImages.checked
   };
 
   const name = els.filename.value.trim();
@@ -340,14 +336,6 @@ async function save() {
 // Wiring
 // ---------------------------------------------------------------------------
 
-function setMode(mode, reExtract = true) {
-  state.mode = mode;
-  document.querySelectorAll('.modes__btn').forEach((btn) => {
-    btn.setAttribute('aria-pressed', String(btn.dataset.mode === mode));
-  });
-  if (reExtract) extract(mode);
-}
-
 async function init() {
   state.settings = await loadSettings();
   els.tags.value = state.settings.defaultTags;
@@ -362,13 +350,8 @@ async function init() {
     return;
   }
 
-  setMode(state.settings.defaultMode === 'page' ? 'page' : 'article', false);
-  await extract(state.mode);
+  await extract();
 }
-
-document.querySelectorAll('.modes__btn').forEach((btn) => {
-  btn.addEventListener('click', () => setMode(btn.dataset.mode));
-});
 
 ['input', 'change'].forEach((evt) => {
   els.filename.addEventListener(evt, refreshDest);
