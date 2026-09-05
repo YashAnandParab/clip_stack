@@ -98,6 +98,17 @@ async function postJson(settings, path, payload) {
   return resp.json();
 }
 
+export async function getCategories(settings) {
+  const headers = {};
+  if (settings.token) headers['X-Clip-Token'] = settings.token;
+  const response = await fetch(base(settings.serverUrl) + '/categories', { headers });
+  if (response.status === 401) {
+    throw new Error('Copy an extension token from the Clipstack web app into Settings.');
+  }
+  if (!response.ok) throw new Error(`Could not load categories (${response.status}).`);
+  return response.json();
+}
+
 /** Extract and write. */
 export async function sendClip(settings, payload) {
   return postJson(settings, '/clip', payload);

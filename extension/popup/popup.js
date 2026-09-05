@@ -1,6 +1,7 @@
 import {
   loadSettings,
   checkHealth,
+  getCategories,
   sendClip,
   previewClip,
   fallbackFile,
@@ -34,14 +35,8 @@ const state = {
   extracted: null,  // { html, url } captured from the tab
   preview: null,    // the server's /preview response
   health: null,
-  busy: false
-};
-
-const TAXONOMY = {
-  'Investor Finance': ['Behavioral Finance', 'Personal Finance', 'Nano Learning', 'Investing', 'Markets', 'Money'],
-  Work: ['AI', 'Database'],
-  News: ['Political', 'Sports'],
-  Entertainment: ['Movies', 'Songs']
+  busy: false,
+  taxonomy: {}
 };
 
 function options(select, values, placeholder) {
@@ -49,14 +44,14 @@ function options(select, values, placeholder) {
 }
 
 function fillSubcategories(value = '') {
-  const values = [...(TAXONOMY[els.category.value] || [])];
+  const values = [...(state.taxonomy[els.category.value] || [])];
   if (value && !values.includes(value)) values.unshift(value);
   options(els.subcategory, values, 'Select a subcategory');
   els.subcategory.value = value;
 }
 
 function fillCategories(value = '') {
-  const values = Object.keys(TAXONOMY);
+  const values = Object.keys(state.taxonomy);
   if (value && !values.includes(value)) values.unshift(value);
   options(els.category, values, 'Select a category');
   els.category.value = value;
@@ -340,6 +335,16 @@ async function init() {
   state.settings = await loadSettings();
   els.tags.value = state.settings.defaultTags;
 
+  try {
+    const categories = await getCategories(state.settings);
+    state.taxonomy = Object.fromEntries(
+      categories.map((category) => [category.name, category.subcategories])
+    );
+  } catch (error) {
+    showError(error.message);
+    return;
+  }
+
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   state.tab = tab;
 
@@ -362,8 +367,6 @@ els.category.addEventListener('change', () => {
   updateSaveState();
 });
 els.subcategory.addEventListener('change', updateSaveState);
-
-fillCategories();
 
 els.save.addEventListener('click', save);
 els.options.addEventListener('click', () => chrome.runtime.openOptionsPage());

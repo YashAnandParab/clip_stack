@@ -22,21 +22,28 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, StrictUndefined
 from pydantic import BaseModel, Field
 
 from .assets import process_images
+from .auth import clear_session, create_token, current_user, set_session, verify_google
 from .config import BUILTIN_TEMPLATE_DIR, TEMPLATE_DIR, VAULT_PATH, store
 from .database import (
-    backfill_vault_history,
+    add_subcategory,
+    create_category,
     database_available,
-    delete_clip_record,
-    get_clip,
+    delete_article_record,
+    delete_category,
+    delete_subcategory,
+    get_article,
     init_database,
-    list_clips,
-    record_clip,
+    list_articles,
+    list_categories,
+    record_article,
+    valid_taxonomy,
 )
 from .extraction import extract as extract_content
 from .naming import apply_conflict_policy, resolve_in_vault, slugify
@@ -45,15 +52,9 @@ from .ocr import OCR_BASE_URL, OCR_ENABLED
 log = logging.getLogger("clipserver")
 logging.basicConfig(level=os.environ.get("CLIP_LOG_LEVEL", "INFO"))
 
-TOKEN = os.environ.get("CLIP_TOKEN", "").strip()
-
-
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_database()
-    imported = backfill_vault_history(VAULT_PATH)
-    if imported:
-        log.info("imported %d existing vault clips into history", imported)
     yield
 
 app = FastAPI(title="Clip server", version="1.0.0", docs_url="/docs", lifespan=lifespan)
@@ -64,6 +65,7 @@ app.add_middleware(
     allow_origin_regex=r"^(chrome|moz)-extension://.*$|^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
 
 
@@ -167,11 +169,11 @@ class ClipResult(BaseModel):
     ocr_succeeded: int = 0
     ocr_attempted: int = 0
     overwritten: bool = False
-    history_id: int
+    article_id: str
 
 
-class ClipHistoryItem(BaseModel):
-    id: int
+class ArticleItem(BaseModel):
+    id: str
     url: str
     title: str
     site: str
@@ -182,33 +184,45 @@ class ClipHistoryItem(BaseModel):
     category: str
     subcategory: str
     path: str
+    filename: str
     source_client: str
     clipped_at: datetime
 
 
-class ClipHistoryResult(BaseModel):
-    items: list[ClipHistoryItem]
+class ArticleDetail(ArticleItem):
+    markdown: str
+
+
+class ArticleList(BaseModel):
+    items: list[ArticleItem]
     total: int
 
 
 class DeleteClipResult(BaseModel):
     ok: bool = True
-    id: int
+    id: str
     path: str
     file_deleted: bool
     assets_deleted: bool
 
 
+class GoogleCredential(BaseModel):
+    credential: str = Field(min_length=20)
+
+
+class NamePayload(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
+class CategoryItem(BaseModel):
+    id: str
+    name: str
+    subcategories: list[str]
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _check_token(supplied: str | None) -> None:
-    if not TOKEN:
-        return  # auth disabled; fine on a localhost-only bind
-    if supplied != TOKEN:
-        raise HTTPException(status_code=401, detail="Bad or missing X-Clip-Token")
-
 
 async def _clip_from_url(payload: URLRequest) -> Clip:
     parsed = urlparse(payload.url)
@@ -287,7 +301,9 @@ def _subfolder_template(clip: Clip, rule) -> str:
     return clip.subfolder if clip.subfolder is not None else rule.subfolder
 
 
-def _resolve_taxonomy(clip: Clip, rule, variables: dict[str, Any]) -> None:
+def _resolve_taxonomy(
+    owner_id: str, clip: Clip, rule, variables: dict[str, Any]
+) -> None:
     """
     Work out what the note is about and add it to `variables`, in place.
 
@@ -303,13 +319,39 @@ def _resolve_taxonomy(clip: Clip, rule, variables: dict[str, Any]) -> None:
         except Exception:
             return ""
 
-    variables["category"] = clip.category.strip() or render(rule.category)
-    variables["subcategory"] = clip.subcategory.strip() or render(rule.subcategory)
+    category = clip.category.strip() or render(rule.category)
+    subcategory = clip.subcategory.strip() or render(rule.subcategory)
+    variables["category"], variables["subcategory"] = valid_taxonomy(
+        owner_id, category, subcategory
+    )
 
 
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
+@app.post("/auth/google")
+def google_login(payload: GoogleCredential, response: Response) -> dict[str, Any]:
+    user = verify_google(payload.credential)
+    set_session(response, user)
+    return user
+
+
+@app.get("/auth/me")
+def auth_me(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    return {key: user.get(key, "") for key in ("sub", "email", "name", "picture")}
+
+
+@app.post("/auth/logout")
+def auth_logout(response: Response) -> dict[str, bool]:
+    clear_session(response)
+    return {"ok": True}
+
+
+@app.post("/auth/extension-token")
+def extension_token(user: dict[str, Any] = Depends(current_user)) -> dict[str, str]:
+    return {"token": create_token(user, 60 * 60 * 24 * 365)}
+
 
 @app.get("/health")
 def health() -> dict[str, Any]:
@@ -322,7 +364,7 @@ def health() -> dict[str, Any]:
         "database_ok": database_ok,
         "ocr_enabled": OCR_ENABLED,
         "ocr_url": OCR_BASE_URL if OCR_ENABLED else "",
-        "auth_required": bool(TOKEN),
+        "auth_required": True,
         "site_rules": store.site_count,
         "config_error": store.error,
     }
@@ -331,11 +373,9 @@ def health() -> dict[str, Any]:
 @app.post("/clip", response_model=ClipResult)
 async def clip(
     payload: Clip,
-    x_clip_token: str | None = Header(default=None),
     x_clip_client: str | None = Header(default=None),
+    user: dict[str, Any] = Depends(current_user),
 ) -> ClipResult:
-    _check_token(x_clip_token)
-
     if not VAULT_PATH.is_dir():
         raise HTTPException(
             status_code=500,
@@ -351,7 +391,12 @@ async def clip(
 
     rule = store.rule_for(_domain_for(payload), payload.url)
     variables = _variables(payload, doc, rule.tags)
-    _resolve_taxonomy(payload, rule, variables)
+    _resolve_taxonomy(user["sub"], payload, rule, variables)
+    if not variables["category"] or not variables["subcategory"]:
+        raise HTTPException(
+            status_code=422,
+            detail="Choose a category and one of its listed subcategories.",
+        )
 
     # Per-clip overrides from the popup beat the config file.
     subfolder_tpl = _subfolder_template(payload, rule)
@@ -401,16 +446,21 @@ async def clip(
     relative = target.relative_to(VAULT_PATH.resolve())
     relative_path = str(relative).replace(os.sep, "/")
     try:
-        history_id = record_clip(
+        article_id = record_article(
+            user["sub"],
             {**variables, "strategy": doc.strategy},
             relative_path,
+            target.name,
+            note,
             (x_clip_client or "unknown")[:40],
         )
     except Exception as exc:
-        log.exception("clip was written but history could not be recorded")
+        # ponytail: filesystem + MongoDB cannot transact; add reconciliation if
+        # orphaned vault exports become a real operational problem.
+        log.exception("clip was written but MongoDB could not record it")
         raise HTTPException(
             status_code=503,
-            detail=f"Clip was saved to {relative_path}, but PostgreSQL history failed.",
+            detail=f"Clip was saved to {relative_path}, but MongoDB persistence failed.",
         ) from exc
 
     log.info(
@@ -437,19 +487,45 @@ async def clip(
         ocr_succeeded=images.ocr_succeeded,
         ocr_attempted=images.ocr_attempted,
         overwritten=overwritten,
-        history_id=history_id,
+        article_id=article_id,
     )
 
 
-@app.get("/clips", response_model=ClipHistoryResult)
-def clip_history(
+@app.get("/articles", response_model=ArticleList)
+def article_list(
     limit: int = Query(default=200, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
-    x_clip_token: str | None = Header(default=None),
-) -> ClipHistoryResult:
-    _check_token(x_clip_token)
-    items, total = list_clips(limit, offset)
-    return ClipHistoryResult(items=items, total=total)
+    user: dict[str, Any] = Depends(current_user),
+) -> ArticleList:
+    items, total = list_articles(user["sub"], limit, offset)
+    return ArticleList(items=items, total=total)
+
+
+@app.get("/articles/{article_id}", response_model=ArticleDetail)
+def article_detail(
+    article_id: str, user: dict[str, Any] = Depends(current_user)
+) -> ArticleDetail:
+    article = get_article(user["sub"], article_id)
+    if article is None:
+        raise HTTPException(status_code=404, detail="Article not found.")
+    return ArticleDetail(**article)
+
+
+@app.get("/articles/{article_id}/assets/{filename}")
+def article_asset(
+    article_id: str,
+    filename: str,
+    user: dict[str, Any] = Depends(current_user),
+) -> FileResponse:
+    article = get_article(user["sub"], article_id, include_markdown=False)
+    if article is None or Path(filename).name != filename:
+        raise HTTPException(status_code=404, detail="Asset not found.")
+    note = _stored_path_in_vault(article["path"])
+    assets_root = (note.parent / "assets" / note.stem).resolve()
+    asset = (assets_root / filename).resolve()
+    if asset.parent != assets_root or not asset.is_file():
+        raise HTTPException(status_code=404, detail="Asset not found.")
+    return FileResponse(asset)
 
 
 def _stored_path_in_vault(relative_path: str) -> Path:
@@ -468,16 +544,15 @@ def _stored_path_in_vault(relative_path: str) -> Path:
     return target
 
 
-@app.delete("/clips/{clip_id}", response_model=DeleteClipResult)
-def delete_clip(
-    clip_id: int,
-    x_clip_token: str | None = Header(default=None),
+@app.delete("/articles/{article_id}", response_model=DeleteClipResult)
+def delete_article(
+    article_id: str,
+    user: dict[str, Any] = Depends(current_user),
 ) -> DeleteClipResult:
-    """Permanently remove one history record, its note, and note-owned assets."""
-    _check_token(x_clip_token)
-    record = get_clip(clip_id)
+    """Permanently remove one article, its note, and note-owned assets."""
+    record = get_article(user["sub"], article_id, include_markdown=False)
     if record is None:
-        raise HTTPException(status_code=404, detail="Clip not found.")
+        raise HTTPException(status_code=404, detail="Article not found.")
 
     target = _stored_path_in_vault(str(record["path"]))
     assets_candidate = target.parent / "assets" / target.stem
@@ -504,19 +579,78 @@ def delete_clip(
             except OSError:
                 pass  # other notes still own asset directories here
     except OSError as exc:
-        log.exception("failed to delete clip files for history id %s", clip_id)
+        log.exception("failed to delete article files for id %s", article_id)
         raise HTTPException(status_code=500, detail=f"Could not delete clip files: {exc}") from exc
 
-    if not delete_clip_record(clip_id):
-        raise HTTPException(status_code=404, detail="Clip history record was already deleted.")
+    if not delete_article_record(user["sub"], article_id):
+        raise HTTPException(status_code=404, detail="Article was already deleted.")
 
-    log.info("deleted clip history id %s -> %s", clip_id, record["path"])
+    log.info("deleted article id %s -> %s", article_id, record["path"])
     return DeleteClipResult(
-        id=clip_id,
+        id=article_id,
         path=str(record["path"]),
         file_deleted=file_deleted,
         assets_deleted=assets_deleted,
     )
+
+
+@app.get("/categories", response_model=list[CategoryItem])
+def category_list(user: dict[str, Any] = Depends(current_user)) -> list[CategoryItem]:
+    return [CategoryItem(**item) for item in list_categories(user["sub"])]
+
+
+@app.post("/categories", response_model=CategoryItem, status_code=201)
+def category_create(
+    payload: NamePayload, user: dict[str, Any] = Depends(current_user)
+) -> CategoryItem:
+    if not payload.name.strip():
+        raise HTTPException(status_code=422, detail="Category name cannot be blank.")
+    category = create_category(user["sub"], payload.name)
+    if category is None:
+        raise HTTPException(status_code=409, detail="Category already exists.")
+    return CategoryItem(**category)
+
+
+@app.post("/categories/{category_id}/subcategories", status_code=201)
+def subcategory_create(
+    category_id: str,
+    payload: NamePayload,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, bool]:
+    if not payload.name.strip():
+        raise HTTPException(status_code=422, detail="Subcategory name cannot be blank.")
+    result = add_subcategory(user["sub"], category_id, payload.name)
+    if result == "not_found":
+        raise HTTPException(status_code=404, detail="Category not found.")
+    if result == "duplicate":
+        raise HTTPException(status_code=409, detail="Subcategory already exists.")
+    return {"ok": True}
+
+
+@app.delete("/categories/{category_id}/subcategories")
+def subcategory_remove(
+    category_id: str,
+    name: str = Query(min_length=1, max_length=80),
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, bool]:
+    if not delete_subcategory(user["sub"], category_id, name):
+        raise HTTPException(status_code=404, detail="Subcategory not found.")
+    return {"ok": True}
+
+
+@app.delete("/categories/{category_id}")
+def category_remove(
+    category_id: str, user: dict[str, Any] = Depends(current_user)
+) -> dict[str, bool]:
+    result = delete_category(user["sub"], category_id)
+    if result == "not_found":
+        raise HTTPException(status_code=404, detail="Category not found.")
+    if result == "not_empty":
+        raise HTTPException(
+            status_code=409,
+            detail="Delete the category's subcategories first.",
+        )
+    return {"ok": True}
 
 
 class PreviewResult(BaseModel):
@@ -541,10 +675,10 @@ class PreviewResult(BaseModel):
 
 
 @app.post("/preview", response_model=PreviewResult)
-async def preview(payload: Clip, x_clip_token: str | None = Header(default=None)) -> PreviewResult:
+async def preview(
+    payload: Clip, user: dict[str, Any] = Depends(current_user)
+) -> PreviewResult:
     """Extract and report back without writing anything."""
-    _check_token(x_clip_token)
-
     doc = extract_content(payload.html, payload.url)
     if doc is None:
         raise HTTPException(
@@ -554,7 +688,7 @@ async def preview(payload: Clip, x_clip_token: str | None = Header(default=None)
 
     rule = store.rule_for(_domain_for(payload), payload.url)
     variables = _variables(payload, doc, rule.tags)
-    _resolve_taxonomy(payload, rule, variables)
+    _resolve_taxonomy(user["sub"], payload, rule, variables)
 
     try:
         subfolder = _render_string(_subfolder_template(payload, rule), variables)
@@ -582,18 +716,18 @@ async def preview(payload: Clip, x_clip_token: str | None = Header(default=None)
 
 
 @app.post("/preview-url", response_model=PreviewResult)
-async def preview_url(payload: URLRequest, x_clip_token: str | None = Header(default=None)) -> PreviewResult:
+async def preview_url(
+    payload: URLRequest, user: dict[str, Any] = Depends(current_user)
+) -> PreviewResult:
     """Fetch a public URL, then use the normal preview pipeline."""
-    _check_token(x_clip_token)
-    return await preview(await _clip_from_url(payload), x_clip_token)
+    return await preview(await _clip_from_url(payload), user)
 
 
 @app.post("/clip-url", response_model=ClipResult)
 async def clip_url(
     payload: URLRequest,
-    x_clip_token: str | None = Header(default=None),
     x_clip_client: str | None = Header(default=None),
+    user: dict[str, Any] = Depends(current_user),
 ) -> ClipResult:
     """Fetch a public URL, then use the normal clip pipeline."""
-    _check_token(x_clip_token)
-    return await clip(await _clip_from_url(payload), x_clip_token, x_clip_client or "web")
+    return await clip(await _clip_from_url(payload), x_clip_client or "web", user)

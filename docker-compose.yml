@@ -1,16 +1,12 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: clip-postgres
+  mongo:
+    image: mongo:8
+    container_name: clip-mongo
     restart: unless-stopped
-    environment:
-      POSTGRES_DB: "${POSTGRES_DB:-clipstack}"
-      POSTGRES_USER: "${POSTGRES_USER:-clipstack}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-clipstack}"
     volumes:
-      - clip-postgres-data:/var/lib/postgresql/data
+      - clip-mongo-data:/data/db
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -20,7 +16,7 @@ services:
     container_name: clip-server
     restart: unless-stopped
     depends_on:
-      postgres:
+      mongo:
         condition: service_healthy
 
     # 127.0.0.1 on purpose. This endpoint writes files to your disk; it has no
@@ -29,16 +25,15 @@ services:
       - "127.0.0.1:${CLIP_PORT:-8765}:8765"
 
     environment:
-      CLIP_TOKEN: "${CLIP_TOKEN:-}"
       CLIP_LOG_LEVEL: "${CLIP_LOG_LEVEL:-INFO}"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:?set GOOGLE_CLIENT_ID in .env}"
+      SESSION_SECRET: "${SESSION_SECRET:?set SESSION_SECRET in .env}"
+      COOKIE_SECURE: "${COOKIE_SECURE:-false}"
       PUID: "${PUID:-1000}"
       PGID: "${PGID:-1000}"
       TZ: "${TZ:-UTC}"
-      PGHOST: postgres
-      PGPORT: "5432"
-      PGDATABASE: "${POSTGRES_DB:-clipstack}"
-      PGUSER: "${POSTGRES_USER:-clipstack}"
-      PGPASSWORD: "${POSTGRES_PASSWORD:-clipstack}"
+      MONGO_URL: "mongodb://mongo:27017"
+      MONGO_DATABASE: "${MONGO_DATABASE:-clipstack}"
       OCR_ENABLED: "${OCR_ENABLED:-true}"
       OCR_BASE_URL: "${OCR_BASE_URL:-http://mineru-ocr:8766}"
       OCR_API_KEY: "${OCR_API_KEY:-}"
@@ -62,6 +57,7 @@ services:
       args:
         # Used by the visitor's browser, so this points at the host API port.
         VITE_API_URL: "http://127.0.0.1:${CLIP_PORT:-8765}"
+        VITE_GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:?set GOOGLE_CLIENT_ID in .env}"
     container_name: clip-frontend
     restart: unless-stopped
     depends_on:
@@ -70,7 +66,7 @@ services:
       - "127.0.0.1:${FRONTEND_PORT:-3000}:80"
 
 volumes:
-  clip-postgres-data:
+  clip-mongo-data:
 
 networks:
   local-ai:
